@@ -231,6 +231,12 @@ public class ClubHead : MonoBehaviour
         Vector3 ballCenter = other.bounds.center;
         if (Vector3.Dot(velocity, ballCenter - headPosition) <= 0f) return;
 
+        if (clubData.isCue)
+        {
+            TryCueHit(ball, headPosition, velocity);
+            return;
+        }
+
         float swingSpeed = velocity.magnitude;
         float fullSpeed = clubData.GetBallSpeed(swingSpeed);
         if (fullSpeed <= 0f) return; // too slow to count
@@ -268,6 +274,38 @@ public class ClubHead : MonoBehaviour
         if (logHits)
         {
             Debug.Log($"[{clubData.clubName}] hit: swing {swingSpeed:F1} m/s, sweet spot {LastSweetSpot * 100f:F0}% -> ball {ballSpeed:F1} m/s", this);
+        }
+    }
+
+    // Pool cue: the tip strikes the ball and sends it straight along the cue (grip -> tip), flat along the felt.
+    // Only the push along the cue counts as power, so a sideways swipe barely moves it.
+    private void TryCueHit(GolfBall ball, Vector3 tipPosition, Vector3 velocity)
+    {
+        Vector3 grip = clubBody != null ? clubBody.position : transform.parent != null ? transform.parent.position : tipPosition;
+        Vector3 axis = Vector3.ProjectOnPlane(tipPosition - grip, Vector3.up);
+        if (axis.sqrMagnitude < 0.0001f) return; // cue pointing straight down: no direction to push
+        axis.Normalize();
+
+        float strokeSpeed = Vector3.Dot(velocity, axis);
+        float ballSpeed = clubData.GetBallSpeed(strokeSpeed);
+        if (ballSpeed <= 0f) return; // too soft, or pulled backward
+
+        if (!ball.Launch(axis * ballSpeed, 0f, ShotType.Swing, clubData.clubName)) return;
+
+        lastHitTime = Time.time;
+        LastSwingSpeed = strokeSpeed;
+        LastBallSpeed = ballSpeed;
+        LastSweetSpot = 1f;
+
+        PlayHaptic();
+        PlayHitSound(ballSpeed);
+        onLegitSwing?.Invoke();
+        DropClub();
+        Golf.Throwing.BallFlightFollower.Begin(ball);
+
+        if (logHits)
+        {
+            Debug.Log($"[Cue] stroke {strokeSpeed:F1} m/s -> ball {ballSpeed:F1} m/s", this);
         }
     }
 

@@ -39,7 +39,13 @@ public class ClubSwitcher : MonoBehaviour
     public UnityEvent onClubChanged;
 
     public int CurrentIndex { get; private set; }
-    public ClubData CurrentClub => clubs != null && clubs.Length > 0 ? clubs[CurrentIndex] : null;
+    public ClubData CurrentClub => cueMode ? Cue : (clubs != null && clubs.Length > 0 ? clubs[CurrentIndex] : null);
+
+    /// <summary>True while the pool table is up: the club is a pool cue and can't be switched.</summary>
+    public bool CueMode => cueMode;
+
+    private bool cueMode;
+    private ClubData cue;
 
     private XRGrabInteractable grab;
     private GameObject spawnedVisual;
@@ -159,8 +165,17 @@ public class ClubSwitcher : MonoBehaviour
     public void NextClub()
     {
         if (clubs == null || clubs.Length == 0) return;
+        if (cueMode) return; // it's a pool cue until the table goes away
 
         SetClub((CurrentIndex + 1) % clubs.Length);
+    }
+
+    /// <summary>Turns the club into a pool cue (on) or back into the selected golf club (off).</summary>
+    public void SetCueMode(bool on)
+    {
+        if (on == cueMode) return;
+        cueMode = on;
+        SetClub(CurrentIndex);
     }
 
     public void SetClub(int index)
@@ -172,7 +187,7 @@ public class ClubSwitcher : MonoBehaviour
         }
 
         CurrentIndex = Mathf.Clamp(index, 0, clubs.Length - 1);
-        ClubData club = clubs[CurrentIndex];
+        ClubData club = cueMode ? Cue : clubs[CurrentIndex];
         if (club == null)
         {
             Debug.LogWarning($"{name}: club slot {CurrentIndex} is empty.", this);
@@ -190,6 +205,42 @@ public class ClubSwitcher : MonoBehaviour
 
         onClubChanged?.Invoke();
         Debug.Log($"Club: {club.clubName}", this);
+    }
+
+    // The pool cue's numbers, made once in code (it only exists while the pool table is up).
+    // A long thin stick with a small tip, no loft or lift, gentle power suited to a table.
+    private ClubData Cue
+    {
+        get
+        {
+            if (cue != null) return cue;
+
+            cue = ScriptableObject.CreateInstance<ClubData>();
+            cue.name = "Cue";
+            cue.clubName = "Cue";
+            cue.isCue = true;
+            cue.shaftLength = 1.45f;
+            cue.faceWidth = 0.024f;     // the tip
+            cue.faceThickness = 0.012f;
+            cue.loftDegrees = 0f;
+            cue.liftStrength = 0f;
+            cue.speedCurve = new AnimationCurve(new Keyframe(0f, 0f), new Keyframe(4f, 6f)); // stroke speed -> ball speed
+            cue.minSwingSpeed = 0.25f;
+            cue.maxBallSpeed = 7f;
+            cue.faceAimInfluence = 0f;
+            cue.edgePower = 1f;
+            cue.edgeCurveDegrees = 0f;
+            cue.hapticAmplitude = 0.35f;
+            cue.hapticDuration = 0.04f;
+            cue.hitVolume = 0.6f;
+
+            // Borrow the putter's soft "tock" for the cue tip.
+            if (clubs != null)
+                foreach (ClubData c in clubs)
+                    if (c != null && c.clubName == "Putter") cue.hitSound = c.hitSound;
+
+            return cue;
+        }
     }
 
     // Puts the head at the end of the shaft and sizes the gray-box placeholder to match.

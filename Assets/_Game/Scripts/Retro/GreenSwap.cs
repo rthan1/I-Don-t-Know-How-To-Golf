@@ -48,6 +48,12 @@ public class GreenSwap : MonoBehaviour
                 SettleLooseClubs(allowDown: true);
             }
         }
+
+        // The club is a pool cue while the table is up (after the ball has moved, so a held club's
+        // stance lines up with where the ball actually is).
+        if (Application.isPlaying)
+            foreach (ClubSwitcher club in FindObjectsByType<ClubSwitcher>(FindObjectsSortMode.None))
+                club.SetCueMode(on);
     }
 
     /// Drops every resting ball onto whatever is under it now. A ball in the player's hand stays put,

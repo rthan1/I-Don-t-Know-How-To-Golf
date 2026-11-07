@@ -13,6 +13,9 @@ public class ClubData : ScriptableObject
     [Tooltip("The 3D model shown in the player's hand for this club.")]
     public GameObject visualPrefab;
 
+    [Tooltip("Pool cue: hits with the tip, straight along the shaft, flat along the ground (used on the pool table).")]
+    public bool isCue;
+
     [Header("Shape")]
     [Tooltip("Distance from the grip to the club head, in meters.")]
     [Min(0.1f)] public float shaftLength = 1.0f;

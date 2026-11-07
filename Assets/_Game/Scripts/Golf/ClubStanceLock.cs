@@ -17,6 +17,10 @@ public sealed class ClubStanceLock : MonoBehaviour
     const float GroundProbeUp = 3f;
     const float GroundProbeDown = 40f;
     const float StandSlightlyBehind = 0.04f;
+    // Pool cue stance. The cue is 1.45 m and held near the butt, so the hand has to start well back
+    // or the tip would already be past the ball.
+    const float CueStanceBehind = 1.3f;  // head this far behind the ball
+    const float CueEyeHeight = 0.55f;    // eyes this far above the ball (bent over the table)
 
     ClubSwitcher _switcher;
     XRGrabInteractable _grab;
@@ -27,6 +31,13 @@ public sealed class ClubStanceLock : MonoBehaviour
 
     GroundFollow _suspendedGroundFollow;
     bool _groundFollowWasEnabled;
+
+    // GroundFollow is off while the club is held, so the player rides with the ball's height instead:
+    // if the pool table lifts the ball (or drops it back down), the locked stance moves with it.
+    GolfBall _stanceBall;
+    Rigidbody _stanceBallBody;
+    float _stanceBallY;
+    Transform _stanceOrigin;
     CharacterController _suspendedCharacter;
     bool _characterWasEnabled;
 
@@ -134,8 +145,29 @@ public sealed class ClubStanceLock : MonoBehaviour
         _stanceRoutine = null;
     }
 
+    void LateUpdate()
+    {
+        if (!_stanceLocked || _stanceBall == null || _stanceBallBody == null || _stanceOrigin == null)
+            return;
+        if (!_stanceBall.IsAtRest)
+            return; // ball was hit: it's rolling/flying, not being carried
+
+        float ballY = _stanceBallBody.position.y;
+        float dy = ballY - _stanceBallY;
+        if (Mathf.Abs(dy) < 0.001f)
+            return;
+
+        _stanceOrigin.position += Vector3.up * dy;
+        _stanceBallY = ballY;
+        if (_equip != null)
+            _equip.ForceSnapToCurrentInteractor();
+    }
+
     void ReleaseStanceLock()
     {
+        _stanceBall = null;
+        _stanceBallBody = null;
+        _stanceOrigin = null;
         SuspendFloorFollow(false);
 
         if (!_stanceLocked)
@@ -205,10 +237,20 @@ public sealed class ClubStanceLock : MonoBehaviour
             right.Normalize();
 
         Vector3 left = -right;
-        Vector3 desiredCamera = ballPos + left * stanceDistance - towardHole * StandSlightlyBehind;
-        // Target headset height above the ball so a gripped club can reach turf.
-        // (Origin often sits on the ground via GroundFollow, so "drop from origin height" was a no-op.)
-        desiredCamera.y = ballPos.y + addressEyeHeight;
+        Vector3 desiredCamera;
+        if (club != null && club.isCue)
+        {
+            // Pool cue: stand behind the ball looking down the line to the hole, bent over the table.
+            desiredCamera = ballPos - towardHole * CueStanceBehind;
+            desiredCamera.y = ballPos.y + CueEyeHeight;
+        }
+        else
+        {
+            desiredCamera = ballPos + left * stanceDistance - towardHole * StandSlightlyBehind;
+            // Target headset height above the ball so a gripped club can reach turf.
+            // (Origin often sits on the ground via GroundFollow, so "drop from origin height" was a no-op.)
+            desiredCamera.y = ballPos.y + addressEyeHeight;
+        }
 
         YawRigToward(originRoot, camera, towardHole);
 
@@ -219,6 +261,12 @@ public sealed class ClubStanceLock : MonoBehaviour
         targetOrigin.y = desiredCamera.y - camOffset.y;
 
         originRoot.position = targetOrigin;
+
+        // Remember the ball's height so LateUpdate can carry the player if it moves up or down.
+        _stanceBall = ball;
+        _stanceBallBody = ball.GetComponent<Rigidbody>();
+        _stanceBallY = _stanceBallBody != null ? _stanceBallBody.position.y : ballPos.y;
+        _stanceOrigin = originRoot;
     }
 
     static float StanceDistanceForShaft(float shaftLength)
