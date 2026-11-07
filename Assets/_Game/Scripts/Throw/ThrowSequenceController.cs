@@ -73,6 +73,8 @@ namespace Golf.Throwing
 
             ResolveHeadsetFollow();
             meterUI.BindFollowTarget(headsetFollow);
+            if (VrHandPresenter.Instance != null)
+                meterUI.BindLeftHandFollow(VrHandPresenter.Instance.LeftControllerTransform);
         }
 
         public bool TryBegin(SelectEnterEventArgs args)
@@ -96,7 +98,11 @@ namespace Golf.Throwing
             _grab.trackRotation = false;
 
             if (VrHandPresenter.Instance != null)
+            {
+                VrHandPresenter.Instance.SetLeftHandVisible(false);
                 VrHandPresenter.Instance.SetRightHandGrabbing(true);
+                meterUI.BindLeftHandFollow(VrHandPresenter.Instance.LeftControllerTransform);
+            }
 
             if (_ball != null)
                 _ball.SetVisible(false);
@@ -330,7 +336,10 @@ namespace Golf.Throwing
             RestoreGrabTracking();
 
             if (VrHandPresenter.Instance != null)
+            {
                 VrHandPresenter.Instance.SetRightHandGrabbing(false);
+                VrHandPresenter.Instance.SetLeftHandVisible(true);
+            }
 
             if (_ball != null)
             {

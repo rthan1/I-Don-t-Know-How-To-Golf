@@ -157,6 +157,29 @@ namespace Golf.Throwing
                 _right.SetGrabbing(grabbing);
         }
 
+        public void SetLeftHandVisible(bool visible)
+        {
+            if (!_ready)
+                TrySetupHands();
+
+            if (_left == null)
+                return;
+
+            _left.gameObject.SetActive(visible);
+            if (visible)
+                _left.SetGrabbing(false);
+        }
+
+        public Transform LeftControllerTransform
+        {
+            get
+            {
+                if (!_ready)
+                    TrySetupHands();
+                return _left != null ? _left.transform.parent : null;
+            }
+        }
+
         public void SetHandsVisible(bool visible)
         {
             if (!_ready)
