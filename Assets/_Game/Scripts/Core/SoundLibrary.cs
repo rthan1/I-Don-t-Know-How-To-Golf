@@ -30,6 +30,13 @@ public class SoundLibrary : ScriptableObject
     [Tooltip("Played when the ball counts as holed.")]
     public AudioClip cupIn;
 
+    [Header("Music")]
+    [Tooltip("Background music. Loops across every scene, menu included.")]
+    public AudioClip music;
+
+    [Tooltip("Music volume, 0 to 1. Keep it low enough that hits, the cup and the cameras still come through.")]
+    [Range(0f, 1f)] public float musicVolume = 0.3f;
+
     static SoundLibrary s_Instance;
 
     /// <summary>The project's sound library (loaded once). Null only if the asset is missing.</summary>

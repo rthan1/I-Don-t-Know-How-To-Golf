@@ -24,3 +24,5 @@ MonoBehaviour:
   - {fileID: 8300000, guid: ca235a4678753cf46850f4f1fbf36f1b, type: 3}
   - {fileID: 8300000, guid: b6e4045a36b8a114e9b1d4def6ec5d74, type: 3}
   cupIn: {fileID: 8300000, guid: ab8af8cb54f93304eb6fadbad1d20217, type: 3}
+  music: {fileID: 8300000, guid: 2caa0759c8c649e8bf18c2f358a91132, type: 3}
+  musicVolume: 0.3
