@@ -21,6 +21,29 @@ public sealed class HoleCompleteScreen : MonoBehaviour
     Text _title;
     Text _detail;
     Text _prompt;
+
+    // Scorecard grid: one column per hole in HoleProgression, plus a total column.
+    Text[] _parCells;
+    Text[] _scoreCells;
+    Image[] _columnHighlights;  // pale yellow behind the hole just played
+    Image[] _markOuter;         // circle (birdie) / square (bogey) drawn around the score
+    Image[] _markInner;         // second circle (eagle) / second square (double bogey or worse)
+
+    static readonly Color Yellow = new Color(0.973f, 0.722f, 0f);
+    static readonly Color White = new Color(0.988f, 0.988f, 0.988f);
+
+    // Printed-card palette
+    static readonly Color CardPaper = new Color(0.97f, 0.95f, 0.88f);
+    static readonly Color CardGreen = new Color(0.08f, 0.33f, 0.18f);
+    static readonly Color CardLine = new Color(0.08f, 0.33f, 0.18f, 0.55f);
+    static readonly Color CardInk = new Color(0.1f, 0.12f, 0.1f);
+    static readonly Color CardRedInk = new Color(0.78f, 0.1f, 0.1f);
+    static readonly Color CardTotalTint = new Color(0.9f, 0.87f, 0.77f);
+    static readonly Color CardHighlight = new Color(1f, 0.93f, 0.55f);
+
+    static Sprite s_RingSprite;
+    static Sprite s_BoxSprite;
+
     bool _visible;
     bool _loading;
     float _shownAt;
@@ -145,10 +168,10 @@ public sealed class HoleCompleteScreen : MonoBehaviour
             if (strokes == 1) scoreLine += $"   {ScoreNames.ForToPar(toPar)}"; // a hole in one still shows its name
             if (manager != null && manager.GaveUp) scoreLine += "   (GAVE UP)";
 
-            _detail.text = hasNext
-                ? scoreLine
-                : $"{scoreLine}\nROUND TOTAL {scores.TotalStrokes}   ({scores.FormatToPar(scores.TotalToPar)})";
+            _detail.text = scoreLine;
         }
+
+        FillScorecard(scores, holeName);
 
         if (_prompt != null)
             _prompt.text = hasNext ? "PRESS A TO CONTINUE" : "PRESS A TO FINISH";
@@ -188,18 +211,242 @@ public sealed class HoleCompleteScreen : MonoBehaviour
         canvasGo.AddComponent<CanvasScaler>().dynamicPixelsPerUnit = 4f;
 
         var rect = canvasGo.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(1600f, 900f);
+        rect.sizeDelta = new Vector2(1600f, 1150f);
         canvasGo.transform.localScale = Vector3.one * 0.0025f;
 
-        _title = AddText(canvasGo.transform, "Title", "HOLE\nCOMPLETE", 150,
-            new Color(0.973f, 0.722f, 0f), 0.48f, 1f);
+        _title = AddText(canvasGo.transform, "Title", "HOLE\nCOMPLETE", 130, Yellow, 0.72f, 1f);
         _title.lineSpacing = 0.9f;
 
-        _detail = AddText(canvasGo.transform, "Detail", "", 64,
-            new Color(0.988f, 0.988f, 0.988f), 0.28f, 0.48f);
+        _detail = AddText(canvasGo.transform, "Detail", "", 52, White, 0.62f, 0.72f);
 
-        _prompt = AddText(canvasGo.transform, "Prompt", "PRESS A TO CONTINUE", 72,
-            new Color(0.988f, 0.988f, 0.988f), 0.05f, 0.26f);
+        BuildScorecard(canvasGo.transform, 0.19f, 0.6f);
+
+        _prompt = AddText(canvasGo.transform, "Prompt", "PRESS A TO CONTINUE", 64, White, 0.04f, 0.17f);
+    }
+
+    // A printed golf scorecard: cream paper in a green frame, a green title strip and HOLE row,
+    // ruled grid lines, dark ink numbers. Birdies get a circle, bogeys a square, like players mark them.
+    void BuildScorecard(Transform parent, float bottom, float top)
+    {
+        int holes = HoleProgression.HoleScenes.Length;
+        int dataColumns = holes + 1;          // holes + TOT
+        const float labelWidth = 0.2f;        // the HOLE / PAR / SCORE column
+        float colWidth = (1f - labelWidth) / dataColumns;
+
+        // Row bands, top to bottom (fractions of the card's inner area).
+        const float titleBottom = 0.8f, holeBottom = 0.56f, parBottom = 0.3f;
+
+        // Frame and paper
+        Image frame = AddBox(parent, "Scorecard", CardGreen, 0.04f, 0.96f, bottom, top);
+        Image paper = AddBox(frame.transform, "Paper", CardPaper, 0f, 1f, 0f, 1f);
+        paper.rectTransform.offsetMin = new Vector2(10f, 10f);
+        paper.rectTransform.offsetMax = new Vector2(-10f, -10f);
+        Transform card = paper.transform;
+
+        // Title strip and the green HOLE row
+        AddBox(card, "TitleBar", CardGreen, 0f, 1f, titleBottom, 1f);
+        AddInk(card, "SCORECARD", 44, CardPaper, FontStyle.Bold, 0f, 1f, titleBottom, 1f);
+        AddBox(card, "HoleRow", new Color(0.13f, 0.45f, 0.26f), 0f, 1f, holeBottom, titleBottom);
+
+        // TOT column tint (PAR and SCORE rows)
+        float totLeft = labelWidth + holes * colWidth;
+        AddBox(card, "TotTint", CardTotalTint, totLeft, 1f, 0f, holeBottom);
+
+        // Highlight for the hole just played (moved into place each time the card is shown)
+        _columnHighlights = new Image[holes];
+        for (int i = 0; i < holes; i++)
+        {
+            float left = labelWidth + i * colWidth;
+            _columnHighlights[i] = AddBox(card, "Highlight", CardHighlight, left, left + colWidth, 0f, holeBottom);
+            _columnHighlights[i].enabled = false;
+        }
+
+        // Row labels
+        AddInk(card, "  HOLE", 50, CardPaper, FontStyle.Bold, 0f, labelWidth, holeBottom, titleBottom, TextAnchor.MiddleLeft);
+        AddInk(card, "  PAR", 50, CardInk, FontStyle.Bold, 0f, labelWidth, parBottom, holeBottom, TextAnchor.MiddleLeft);
+        AddInk(card, "  SCORE", 50, CardInk, FontStyle.Bold, 0f, labelWidth, 0f, parBottom, TextAnchor.MiddleLeft);
+
+        _parCells = new Text[dataColumns];
+        _scoreCells = new Text[dataColumns];
+        _markOuter = new Image[holes];
+        _markInner = new Image[holes];
+        if (s_RingSprite == null) s_RingSprite = MakeOutlineSprite(circle: true);
+        if (s_BoxSprite == null) s_BoxSprite = MakeOutlineSprite(circle: false);
+
+        for (int col = 0; col < dataColumns; col++)
+        {
+            float left = labelWidth + col * colWidth;
+            float right = left + colWidth;
+            bool isTotal = col == holes;
+
+            AddInk(card, isTotal ? "TOT" : (col + 1).ToString(), 54, CardPaper, FontStyle.Bold, left, right, holeBottom, titleBottom);
+            _parCells[col] = AddInk(card, "", 54, CardInk, FontStyle.Normal, left, right, parBottom, holeBottom);
+
+            if (!isTotal)
+            {
+                // Score marks sit behind the number, centered in the cell.
+                _markOuter[col] = AddMark(card, left, right, parBottom, 104f);
+                _markInner[col] = AddMark(card, left, right, parBottom, 80f);
+            }
+
+            _scoreCells[col] = AddInk(card, "", isTotal ? 50 : 60, CardInk, FontStyle.Bold, left, right, 0f, parBottom);
+        }
+
+        // Ruled lines: between rows, and between columns (not through the title strip).
+        AddLine(card, 0f, 1f, holeBottom, holeBottom, horizontal: true);
+        AddLine(card, 0f, 1f, parBottom, parBottom, horizontal: true);
+        for (int col = 0; col <= dataColumns - 1; col++)
+        {
+            float x = labelWidth + col * colWidth;
+            AddLine(card, x, x, 0f, titleBottom, horizontal: false, thick: col == 0 || col == holes);
+        }
+    }
+
+    void FillScorecard(RoundScoreTracker scores, string currentHole)
+    {
+        if (_scoreCells == null)
+            return;
+
+        string[] scenes = HoleProgression.HoleScenes;
+        int parTotal = 0;
+
+        for (int i = 0; i < scenes.Length; i++)
+        {
+            bool played = TryGetScore(scores, scenes[i], out RoundScoreTracker.HoleScore score);
+            int par = played ? score.par : StrokeManager.ParForScene(scenes[i]);
+            parTotal += par;
+
+            _columnHighlights[i].enabled = scenes[i] == currentHole;
+            _parCells[i].text = par.ToString();
+            _scoreCells[i].text = played ? score.strokes.ToString() : ""; // blank, like an unfilled card
+
+            // Circle = birdie, double circle = eagle or better; square = bogey, double square = worse.
+            int toPar = played ? score.ToPar : 0;
+            bool under = toPar < 0, over = toPar > 0;
+            SetMark(_markOuter[i], under || over, under ? s_RingSprite : s_BoxSprite);
+            SetMark(_markInner[i], toPar <= -2 || toPar >= 2, under ? s_RingSprite : s_BoxSprite);
+        }
+
+        // Totals: par for the whole course, strokes for the holes played so far.
+        int t = scenes.Length;
+        _parCells[t].text = parTotal.ToString();
+        bool any = scores.Holes.Count > 0;
+        _scoreCells[t].text = any ? $"{scores.TotalStrokes}  {scores.FormatToPar(scores.TotalToPar)}" : "";
+        _scoreCells[t].color = any && scores.TotalToPar < 0 ? CardRedInk : CardInk; // under par in red, like a leaderboard
+    }
+
+    static void SetMark(Image mark, bool show, Sprite sprite)
+    {
+        mark.enabled = show;
+        if (show) mark.sprite = sprite;
+    }
+
+    static Image AddBox(Transform parent, string name, Color color, float left, float right, float bottom, float top)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(left, bottom);
+        rect.anchorMax = new Vector2(right, top);
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        var image = go.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return image;
+    }
+
+    static void AddLine(Transform parent, float left, float right, float bottom, float top, bool horizontal, bool thick = false)
+    {
+        Image line = AddBox(parent, "Line", CardLine, left, right, bottom, top);
+        float half = thick ? 2.5f : 1.5f;
+        line.rectTransform.offsetMin = horizontal ? new Vector2(0f, -half) : new Vector2(-half, 0f);
+        line.rectTransform.offsetMax = horizontal ? new Vector2(0f, half) : new Vector2(half, 0f);
+    }
+
+    static Image AddMark(Transform parent, float left, float right, float top, float size)
+    {
+        Image mark = AddBox(parent, "Mark", CardInk, left, right, 0f, top);
+        var rect = mark.rectTransform;
+        Vector2 center = new Vector2((left + right) * 0.5f, top * 0.5f);
+        rect.anchorMin = rect.anchorMax = center;
+        rect.sizeDelta = new Vector2(size, size);
+        mark.enabled = false;
+        return mark;
+    }
+
+    // Plain card text: dark ink, no outline (the outline on the big headline text would look wrong on paper).
+    static Text AddInk(Transform parent, string content, int size, Color color, FontStyle style,
+        float left, float right, float bottom, float top, TextAnchor align = TextAnchor.MiddleCenter)
+    {
+        var go = new GameObject("Text", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(left, bottom);
+        rect.anchorMax = new Vector2(right, top);
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+
+        var text = go.AddComponent<Text>();
+        text.text = content;
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.fontSize = size;
+        text.fontStyle = style;
+        text.alignment = align;
+        text.color = color;
+        text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        return text;
+    }
+
+    // A hand-drawn-looking pen ring or square, generated once (no art asset needed).
+    static Sprite MakeOutlineSprite(bool circle)
+    {
+        const int size = 128;
+        const float stroke = 6f;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color32[size * size];
+        float c = (size - 1) * 0.5f;
+        float radius = c - 2f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float distToStroke;
+                if (circle)
+                {
+                    float d = Mathf.Sqrt((x - c) * (x - c) + (y - c) * (y - c));
+                    distToStroke = Mathf.Abs(d - (radius - stroke * 0.5f));
+                }
+                else
+                {
+                    float edge = Mathf.Min(Mathf.Min(x, y), Mathf.Min(size - 1 - x, size - 1 - y)) - 2f;
+                    distToStroke = Mathf.Abs(edge - stroke * 0.5f);
+                }
+
+                float a = Mathf.Clamp01(stroke * 0.5f - distToStroke + 0.5f); // 1px anti-aliased edge
+                pixels[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255));
+            }
+        }
+
+        tex.SetPixels32(pixels);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+    }
+
+    static bool TryGetScore(RoundScoreTracker scores, string scene, out RoundScoreTracker.HoleScore result)
+    {
+        for (int i = 0; i < scores.Holes.Count; i++)
+        {
+            if (scores.Holes[i].sceneName == scene)
+            {
+                result = scores.Holes[i];
+                return true;
+            }
+        }
+
+        result = default;
+        return false;
     }
 
     void LateUpdate()

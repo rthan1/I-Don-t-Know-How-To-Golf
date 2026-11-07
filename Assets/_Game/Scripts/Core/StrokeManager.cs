@@ -172,7 +172,8 @@ public class StrokeManager : MonoBehaviour
     }
 
     // Par by scene name, since the holes don't store their own par yet.
-    private static int ParForScene(string sceneName)
+    // Public so the scorecard can show par for holes not played yet.
+    public static int ParForScene(string sceneName)
     {
         switch (sceneName)
         {
