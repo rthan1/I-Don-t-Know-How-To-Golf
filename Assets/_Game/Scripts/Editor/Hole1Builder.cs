@@ -579,7 +579,7 @@ public static class Hole1Builder
             if (L.HasRiver) BuildRiver(root.transform, propMat);
             if (L.HasPowerPlant) BuildPowerPlant(root.transform, propMat);
             if (L.SeparateGreen) BuildSwappableGreens(root.transform, propMat);
-            else BuildCupAndFlag(root.transform, propMat);
+            else BuildGreenWithPoolTable(root.transform, propMat);
             BuildTeeMarkers(root.transform, propMat);
             BuildTrees(root.transform, propMat);
             if (L.HasAnimals) BuildAnimals(root.transform, propMat);
@@ -1768,7 +1768,7 @@ public static class Hole1Builder
 
                 // Keep them off the green, out of bunkers, apart from each other, and out of sight from the tee
                 Vector2 design = w / S.Scale;
-                if (Ellipse(design, GreenCenter, GreenRadius) < 1.25f) continue;
+                if (Ellipse(design, GreenCenter, GreenRadius) < 1.25f || UnderPoolTable(design)) continue;
                 bool inBunker = false;
                 foreach (var b in Bunkers)
                     if (Ellipse(design, b.center, b.radius) < 1.15f) { inBunker = true; break; }
@@ -2001,6 +2001,7 @@ public static class Hole1Builder
             world = ToWorld(design);
 
             if (Ellipse(design, GreenCenter, GreenRadius) < 1.2f) return false;          // off the green
+            if (UnderPoolTable(design)) return false;                                     // out from under the pool table
             if (Vector2.Distance(design, TeeCenter) < 5f) return false;                   // off the tee
             if (L.HasPond && Ellipse(design, PondCenter, PondRadius) < 1.3f) return false; // out of the water
             foreach (var b in Bunkers)
@@ -2109,6 +2110,38 @@ public static class Hole1Builder
 
     const float GreenSurfaceLift = 0.01f; // the green objects sit 1 cm above the ground so they never flicker
 
+    /// Adds the cheat button and tells it where this hole's green is, so it only works while you're standing on it.
+    static void AddPoolTableCheat(GameObject greenRoot, GreenSwap swap)
+    {
+        var cheat = greenRoot.AddComponent<PoolTableCheat>();
+        cheat.green = swap;
+        Vector2 center = ToWorld(GreenCenter);
+        cheat.greenCenter = new Vector3(center.x, greenHeight, center.y);
+        cheat.greenRadius = GreenRadius * S.Scale;
+    }
+
+    /// Holes whose green is part of the terrain (1, 2 and 4): the normal cup and flag go in a "NormalCup" group,
+    /// and the same rising pool table as Hole 3 covers the green. The cheat swaps the cup and flag for the table's.
+    static void BuildGreenWithPoolTable(Transform parent, Material mat)
+    {
+        var greenRoot = new GameObject("Green");
+        greenRoot.transform.SetParent(parent, false);
+
+        var normalCup = new GameObject("NormalCup");
+        normalCup.transform.SetParent(greenRoot.transform, false);
+        BuildCupAndFlag(normalCup.transform, mat);
+
+        GameObject pool = BuildPoolTable(greenRoot.transform, mat);
+
+        var swap = greenRoot.AddComponent<GreenSwap>();
+        swap.terribleGreen = normalCup;
+        swap.poolTable = pool;
+        pool.SetActive(false);
+
+        // The cheat button (A on the right controller / P on the keyboard) that raises the pool table
+        AddPoolTableCheat(greenRoot, swap);
+    }
+
     /// Builds the terrible green and its flat pool-table twin as separate objects, each with its own cup,
     /// CupTrigger and flagstick, plus a GreenSwap component the cheat can use to switch between them.
     static void BuildSwappableGreens(Transform parent, Material mat)
@@ -2120,12 +2153,25 @@ public static class Hole1Builder
         BakeGroundhogGreen(); // crisp NES pixel texture for the dug-up green
         GameObject terrible = BuildGreenSurface(greenRoot.transform, mat, true);
         if (L.HasAnimals) BuildBurrowGroundhogs(terrible.transform, mat);
-        GameObject pool = BuildGreenSurface(greenRoot.transform, mat, false);
+        GameObject pool = BuildPoolTable(greenRoot.transform, mat);
+
+        // The pool table rises up out of the middle of the green, so the dug-up green itself stays put.
+        // Only its cup and flag get swapped out (for the ones on the table).
+        var normalCup = new GameObject("NormalCup");
+        normalCup.transform.SetParent(terrible.transform, false);
+        foreach (string part in new[] { "CupTrigger", "Flagstick" })
+        {
+            Transform piece = terrible.transform.Find(part);
+            if (piece != null) piece.SetParent(normalCup.transform, true);
+        }
 
         var swap = greenRoot.AddComponent<GreenSwap>();
-        swap.terribleGreen = terrible;
+        swap.terribleGreen = normalCup;
         swap.poolTable = pool;
         pool.SetActive(false);
+
+        // The cheat button (A on the right controller / P on the keyboard) that turns it into the pool table
+        AddPoolTableCheat(greenRoot, swap);
     }
 
     // ---- Groundhog damage (all in layout units) ----
@@ -2357,6 +2403,183 @@ public static class Hole1Builder
         return (-b + Mathf.Sqrt(Mathf.Max(0f, b * b - 4f * a * c))) / (2f * a);
     }
 
+    const float PoolTableOversize = 1.15f; // the pool table is 15% bigger than the green
+
+    /// Is this layout-space point under Hole 3's pool table (including its frame)? Used to keep trees, bushes and
+    /// animals from poking up through it. Matches the sizes in BuildPoolTable.
+    static bool UnderPoolTable(Vector2 design)
+    {
+        Vector2 half = PoolFeltHalfSize() / S.Scale;
+        float margin = PoolRailWidth / S.Scale + 1f; // the cushions and frame, plus a little room
+        return Mathf.Abs(design.x - GreenCenter.x) < half.x + margin && Mathf.Abs(design.y - GreenCenter.y) < half.y + margin;
+    }
+
+    /// Half the size of the pool table's felt in world meters: just big enough to cover the whole green
+    /// (about 25 x 21 m on Hole 3).
+    static Vector2 PoolFeltHalfSize() => GreenRadius * S.Scale * 1.03f;
+
+    const float PoolRailWidth = 1.15f; // cushion + wooden frame, in world meters
+
+    /// Distance along a ray from 'from' in direction 'dir' to the edge of an axis-aligned rectangle (world meters).
+    static float RayToRect(Vector2 from, Vector2 dir, Vector2 center, Vector2 half)
+    {
+        float tx = dir.x > 1e-5f ? (center.x + half.x - from.x) / dir.x : dir.x < -1e-5f ? (center.x - half.x - from.x) / dir.x : float.MaxValue;
+        float tz = dir.y > 1e-5f ? (center.y + half.y - from.y) / dir.y : dir.y < -1e-5f ? (center.y - half.y - from.y) / dir.y : float.MaxValue;
+        return Mathf.Min(tx, tz);
+    }
+
+    /// Hole 3's cheat: a proper pool table that rises up out of the green, covering all of it. Rectangular, with
+    /// blue felt, padded cushions in a wooden frame, six pockets, diamond sights, and an apron and legs.
+    /// The golf cup and flag are cut into the felt.
+    static GameObject BuildPoolTable(Transform parent, Material mat)
+    {
+        Vector2 center = ToWorld(GreenCenter);
+
+        Vector2 feltHalf = PoolFeltHalfSize();
+        float halfX = feltHalf.x, halfZ = feltHalf.y;
+        const float cushionWidth = 0.45f, cushionHeight = 0.18f;
+        const float frameWidth = PoolRailWidth - cushionWidth, frameHeight = 0.24f;
+        const float tableHeight = 1.0f;          // felt height above the ground
+        const float pocketGap = 0.8f, pocketRadius = 0.5f;
+        float outerX = halfX + cushionWidth + frameWidth, outerZ = halfZ + cushionWidth + frameWidth;
+
+        // Whatever is underneath: the dug-up green inside its edge, the normal ground outside it
+        float Underneath(Vector2 w) =>
+            L.SeparateGreen && Ellipse(w / S.Scale, GreenCenter, GreenRadius) <= 1f ? GroundhogSurfaceHeight(w) + GreenSurfaceLift : GroundHeight(w);
+
+        // The felt sits a table's height above the highest point underneath, so nothing pokes through
+        float groundTop = float.MinValue;
+        for (float x = center.x - outerX; x <= center.x + outerX; x += S.Cell * 0.5f)
+            for (float z = center.y - outerZ; z <= center.y + outerZ; z += S.Cell * 0.5f)
+                groundTop = Mathf.Max(groundTop, Underneath(new Vector2(x, z)));
+        float top = groundTop + tableHeight;
+
+        Color felt = Hex(0x0078F8), cushion = Hex(0x0058F8), wood = Hex(0x881400), darkWood = Hex(0x503000);
+        Color black = Hex(0x000000), white = Hex(0xFCFCFC), leather = Hex(0x503000);
+        Color A(Color c) { c.a = 0f; return c; } // no random specks
+
+        var mb = new MeshBuilder();
+        Vector3 W(float x, float y, float z) => new Vector3(center.x + x, y, center.y + z); // table-relative to world
+
+        // ---- Felt: flat ring mesh from the cup out to the felt's rectangular edge ----
+        const int segments = 96, rings = 20;
+        Vector2 half = new Vector2(halfX, halfZ);
+        var grid = new Vector3[rings + 1, segments];
+        for (int k = 0; k <= rings; k++)
+            for (int s = 0; s < segments; s++)
+            {
+                float angle = s * Mathf.PI * 2f / segments;
+                var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                float dist = Mathf.Lerp(CupRadius, RayToRect(cup, dir, center, half), Mathf.Pow(k / (float)rings, 1.3f));
+                Vector2 w = cup + dir * dist;
+                grid[k, s] = new Vector3(w.x, top, w.y);
+            }
+        for (int k = 0; k < rings; k++)
+            for (int s = 0; s < segments; s++)
+            {
+                int s1 = (s + 1) % segments;
+                mb.Quad(grid[k, s], grid[k, s1], grid[k + 1, s1], grid[k + 1, s], Vector3.up, A(felt));
+            }
+
+        // ---- The golf cup cut into the felt ----
+        float bottom = top - CupDepth;
+        var cupCenter = new Vector3(cup.x, bottom, cup.y);
+        for (int s = 0; s < segments; s++)
+        {
+            Vector3 a = grid[0, s], b = grid[0, (s + 1) % segments];
+            Vector3 aLiner = a + Vector3.down * 0.025f, bLiner = b + Vector3.down * 0.025f;
+            Vector3 aBottom = new Vector3(a.x, bottom, a.z), bBottom = new Vector3(b.x, bottom, b.z);
+            Vector3 inward = cupCenter - (a + b) * 0.5f;
+            inward.y = 0f;
+            mb.Quad(a, b, bLiner, aLiner, inward, A(S.CupLiner));
+            mb.Quad(aLiner, bLiner, bBottom, aBottom, inward, A(S.CupInside));
+            mb.Tri(cupCenter, aBottom, bBottom, Vector3.up, A(S.CupInside));
+        }
+
+        // ---- Cushions: padded blue rails, broken up by the pockets ----
+        void BoxSpan(float x0, float x1, float z0, float z1, float y0, float y1, Color col) =>
+            mb.Box(W((x0 + x1) * 0.5f, y0, (z0 + z1) * 0.5f), new Vector3(x1 - x0, y1 - y0, z1 - z0), A(col));
+        foreach (float sign in new[] { -1f, 1f })
+        {
+            float zIn = sign * halfZ, zOut = sign * (halfZ + cushionWidth);
+            // Long sides: two cushions each, split by the middle pocket
+            BoxSpan(-halfX + pocketGap, -pocketGap, Mathf.Min(zIn, zOut), Mathf.Max(zIn, zOut), top - 0.05f, top + cushionHeight, cushion);
+            BoxSpan(pocketGap, halfX - pocketGap, Mathf.Min(zIn, zOut), Mathf.Max(zIn, zOut), top - 0.05f, top + cushionHeight, cushion);
+            // Short sides: one cushion each
+            float xIn = sign * halfX, xOut = sign * (halfX + cushionWidth);
+            BoxSpan(Mathf.Min(xIn, xOut), Mathf.Max(xIn, xOut), -halfZ + pocketGap, halfZ - pocketGap, top - 0.05f, top + cushionHeight, cushion);
+        }
+
+        // ---- Wooden frame around the cushions, an apron below it, and a bottom panel ----
+        float frameBottom = top - 0.3f;
+        float frameTop = top + frameHeight;
+        BoxSpan(-outerX, outerX, halfZ + cushionWidth, outerZ, frameBottom, frameTop, wood);       // far long side
+        BoxSpan(-outerX, outerX, -outerZ, -halfZ - cushionWidth, frameBottom, frameTop, wood);     // near long side
+        BoxSpan(halfX + cushionWidth, outerX, -halfZ - cushionWidth, halfZ + cushionWidth, frameBottom, frameTop, wood); // right end
+        BoxSpan(-outerX, -halfX - cushionWidth, -halfZ - cushionWidth, halfZ + cushionWidth, frameBottom, frameTop, wood); // left end
+        float apronBottom = frameBottom - 0.22f;
+        BoxSpan(-outerX + 0.15f, outerX - 0.15f, -outerZ + 0.15f, outerZ - 0.15f, apronBottom, frameBottom, darkWood);  // apron / underside
+
+        // ---- Pockets: black openings with a leather rim, at the corners and the middle of the long sides ----
+        foreach (float px in new[] { -halfX, 0f, halfX })
+            foreach (float pz in new[] { -halfZ, halfZ })
+            {
+                float r = px == 0f ? pocketRadius * 0.9f : pocketRadius;
+                mb.Ellipsoid(W(px, frameTop + 0.005f, pz), new Vector3(r * 1.25f, 0.02f, r * 1.25f), A(leather), 3, 14);
+                mb.Ellipsoid(W(px, frameTop + 0.03f, pz), new Vector3(r, 0.02f, r), A(black), 3, 14);
+                mb.Ellipsoid(W(px, top + 0.01f, pz), new Vector3(r, 0.02f, r), A(black), 3, 14);
+            }
+
+        // ---- Diamond sights on the frame (6 on each long side, 3 on each end) ----
+        float longRailZ = halfZ + cushionWidth + frameWidth * 0.5f, endRailX = halfX + cushionWidth + frameWidth * 0.5f;
+        foreach (float sign in new[] { -1f, 1f })
+        {
+            foreach (float f in new[] { -0.75f, -0.5f, -0.25f, 0.25f, 0.5f, 0.75f })
+                mb.Box(W(f * halfX, frameTop, sign * longRailZ), new Vector3(0.24f, 0.03f, 0.14f), A(white));
+            foreach (float f in new[] { -0.5f, 0f, 0.5f })
+                mb.Box(W(sign * endRailX, frameTop, f * halfZ), new Vector3(0.14f, 0.03f, 0.24f), A(white));
+        }
+
+        // ---- Legs: six chunky legs down to the ground ----
+        foreach (float lx in new[] { -outerX + 0.6f, 0f, outerX - 0.6f })
+            foreach (float lz in new[] { -outerZ + 0.6f, outerZ - 0.6f })
+            {
+                float ground = Underneath(new Vector2(center.x + lx, center.y + lz)) - 0.2f;
+                mb.Box(W(lx, ground, lz), new Vector3(0.6f, Mathf.Max(0.1f, apronBottom - ground), 0.6f), A(darkWood));
+            }
+
+        var table = new GameObject("PoolTable");
+        table.transform.SetParent(parent, false);
+        var surface = new GameObject("Table");
+        surface.transform.SetParent(table.transform, false);
+        Mesh mesh = mb.ToMesh(S.MeshPrefix + "PoolTable");
+        surface.AddComponent<MeshFilter>().sharedMesh = mesh;
+        surface.AddComponent<MeshRenderer>().sharedMaterial = mat;
+        surface.AddComponent<MeshCollider>().sharedMesh = mesh; // the ball rolls on the felt and bounces off the cushions
+
+        BuildCupAndFlag(table.transform, mat, bottom, "_Pool");
+
+        // Rises up out of the ground when the cheat turns it on (and carries the player and ball up with it)
+        var rise = table.AddComponent<PoolTableRise>();
+        rise.riseDistance = tableHeight + 1.6f;
+        return table;
+    }
+
+
+    /// The highest point of the terrain inside an ellipse (world meters).
+    static float HighestGroundUnder(Vector2 center, Vector2 radius)
+    {
+        float highest = float.MinValue;
+        float step = S.Cell * 0.5f;
+        for (float x = center.x - radius.x; x <= center.x + radius.x; x += step)
+            for (float z = center.y - radius.y; z <= center.y + radius.y; z += step)
+            {
+                float dx = (x - center.x) / radius.x, dz = (z - center.y) / radius.y;
+                if (dx * dx + dz * dz <= 1f) highest = Mathf.Max(highest, GroundHeight(new Vector2(x, z)));
+            }
+        return highest == float.MinValue ? greenHeight : highest;
+    }
+
     /// One green surface (groundhog green or pool table) as a ring mesh around the cup, with the cup cut into it.
     static GameObject BuildGreenSurface(Transform parent, Material mat, bool terrible)
     {
@@ -2364,6 +2587,15 @@ public static class Hole1Builder
         int segments = terrible ? 192 : 96, rings = terrible ? 96 : 24;
         Vector2 center = ToWorld(GreenCenter);
         Vector2 radius = GreenRadius * S.Scale;
+
+        // The pool table reaches a bit past the green's edge so it covers it completely, and its flat top sits
+        // just above the highest bit of ground underneath it, so nothing pokes through the felt.
+        float tableTop = 0f;
+        if (!terrible)
+        {
+            radius *= PoolTableOversize;
+            tableTop = HighestGroundUnder(center, radius) + 0.03f;
+        }
 
         var felt = new Color(0f, 0.47f, 0.97f, 0f);    // NES blue pool-table felt
         var cushion = new Color(0f, 0.35f, 0.97f, 0f); // deeper blue on the rail cushions
@@ -2376,8 +2608,9 @@ public static class Hole1Builder
 
         float HeightAt(Vector2 w, bool atEdge)
         {
+            if (!terrible) return tableTop; // perfectly flat, edge to edge
             if (atEdge) return GroundHeight(w) + GreenSurfaceLift;
-            return (terrible ? GroundhogSurfaceHeight(w) : greenHeight) + GreenSurfaceLift;
+            return GroundhogSurfaceHeight(w) + GreenSurfaceLift;
         }
 
         // Shared-vertex ring grid, from the cup's rim out to the green's edge (denser near the cup)
@@ -2458,7 +2691,7 @@ public static class Hole1Builder
                 Vector2 n0 = new Vector2((e0.x - center.x) / (radius.x * radius.x), (e0.y - center.y) / (radius.y * radius.y)).normalized;
                 Vector2 n1 = new Vector2((e1.x - center.x) / (radius.x * radius.x), (e1.y - center.y) / (radius.y * radius.y)).normalized;
                 Vector2 f0 = e0 + n0 * railWidth, f1 = e1 + n1 * railWidth;
-                float base0 = GroundHeight(e0) + GreenSurfaceLift, base1 = GroundHeight(e1) + GreenSurfaceLift;
+                float base0 = tableTop, base1 = tableTop;
                 float top0 = base0 + railHeight, top1 = base1 + railHeight;
                 float outer0 = GroundHeight(f0) - 0.05f, outer1 = GroundHeight(f1) - 0.05f;
                 Vector3 outward = new Vector3(n0.x + n1.x, 0f, n0.y + n1.y);
@@ -2520,6 +2753,7 @@ public static class Hole1Builder
         if (d < HalfWidth(t) + fairwayMargin) return true;
         if (Ellipse(p, GreenCenter, GreenRadius) < 1.9f) return true;
         if (Vector2.Distance(p, TeeCenter) < 7f) return true;
+        if (UnderPoolTable(p)) return true; // Hole 3 only: keep things from poking up through the pool table
         if (L.HasPond && Ellipse(p, PondCenter, PondRadius) < 1.5f) return true;
         if (L.HasMeteor && Vector2.Distance(p, L.MeteorCenter) < L.MeteorRadius * 1.95f) return true;
         if (L.HasShortcut && DistanceToSegment(p, L.ShortcutStart, L.ShortcutEnd, out _) < L.ShortcutHalfWidth + 1f) return true;
