@@ -14,7 +14,7 @@ namespace Golf.Throwing
     /// Space (simulator quick-action) is suppressed while throwing.
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class ThrowSequenceController : MonoBehaviour
+    public sealed class ThrowSequenceController : MonoBehaviour, ICatchableCheat
     {
         const float ConfirmCooldownSeconds = 0.25f;
 
@@ -413,10 +413,32 @@ namespace Golf.Throwing
             PlayerLocomotionLock.ForceUnlock();
         }
 
+        void OnEnable() => SecurityCameraSystem.Register(this);
+
+        void OnDisable() => SecurityCameraSystem.Unregister(this);
+
         void OnDestroy()
         {
             SuppressSimulatorSpaceQuickAction(false);
             UnlockLocomotion();
+        }
+
+        // ---- Security cameras: the cheat throw counts as cheating from grabbing the ball until launch ----
+        public bool IsCheating => IsActive;
+        public string CheatName => "Cheat Throw";
+        public void OnCaught() => CancelThrow();
+
+        /// <summary>Stops the throw without launching. The ball goes back where it last stopped.</summary>
+        public void CancelThrow()
+        {
+            if (Phase == ThrowPhase.Idle)
+                return;
+
+            _launchQueued = false;
+            if (_manager != null && _interactor != null && _grab != null && _grab.isSelected)
+                _manager.SelectExit(_interactor, _grab); // HandleReleased resets the ball
+            else
+                EndThrow(restoreBallVisibility: true, resetToRest: true);
         }
 
         Vector3 GetAimForward()
