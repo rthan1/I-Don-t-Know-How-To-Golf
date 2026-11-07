@@ -20,7 +20,7 @@ namespace Golf.Throwing
 
         [Header("Throw Tuning")]
         [SerializeField] float minThrowSpeed = 4f;
-        [SerializeField] float maxThrowSpeed = 18f;
+        [SerializeField] float maxThrowSpeed = 30f;
         [SerializeField] float loftDegrees = 18f;
         [SerializeField] float maxAccuracyYawDegrees = 28f;
         [SerializeField] float powerMeterSpeed = 1.35f;
