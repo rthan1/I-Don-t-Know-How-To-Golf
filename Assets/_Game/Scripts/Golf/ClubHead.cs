@@ -231,11 +231,8 @@ public class ClubHead : MonoBehaviour
         Vector3 ballCenter = other.bounds.center;
         if (Vector3.Dot(velocity, ballCenter - headPosition) <= 0f) return;
 
-        if (clubData.isCue)
-        {
-            TryCueHit(ball, headPosition, velocity);
-            return;
-        }
+        // Pool cue shots are taken with the power meter (PoolCueShot), not by poking the ball.
+        if (clubData.isCue) return;
 
         float swingSpeed = velocity.magnitude;
         float fullSpeed = clubData.GetBallSpeed(swingSpeed);
@@ -277,23 +274,19 @@ public class ClubHead : MonoBehaviour
         }
     }
 
-    // Pool cue: the tip strikes the ball and sends it straight along the cue (grip -> tip), flat along the felt.
-    // Only the push along the cue counts as power, so a sideways swipe barely moves it.
-    private void TryCueHit(GolfBall ball, Vector3 tipPosition, Vector3 velocity)
+    /// <summary>
+    /// Pool cue shot from the power meter (PoolCueShot): rolls the ball with this velocity, flat along the felt,
+    /// then the usual after-hit steps (sound, buzz, stroke counted, cue dropped, ball followed).
+    /// Returns false if the ball couldn't be launched (it wasn't at rest).
+    /// </summary>
+    public bool CueShot(GolfBall ball, Vector3 launchVelocity)
     {
-        Vector3 grip = clubBody != null ? clubBody.position : transform.parent != null ? transform.parent.position : tipPosition;
-        Vector3 axis = Vector3.ProjectOnPlane(tipPosition - grip, Vector3.up);
-        if (axis.sqrMagnitude < 0.0001f) return; // cue pointing straight down: no direction to push
-        axis.Normalize();
+        if (ball == null || clubData == null) return false;
+        if (!ball.Launch(launchVelocity, 0f, ShotType.Swing, clubData.clubName)) return false;
 
-        float strokeSpeed = Vector3.Dot(velocity, axis);
-        float ballSpeed = clubData.GetBallSpeed(strokeSpeed);
-        if (ballSpeed <= 0f) return; // too soft, or pulled backward
-
-        if (!ball.Launch(axis * ballSpeed, 0f, ShotType.Swing, clubData.clubName)) return;
-
+        float ballSpeed = launchVelocity.magnitude;
         lastHitTime = Time.time;
-        LastSwingSpeed = strokeSpeed;
+        LastSwingSpeed = 0f;
         LastBallSpeed = ballSpeed;
         LastSweetSpot = 1f;
 
@@ -305,8 +298,9 @@ public class ClubHead : MonoBehaviour
 
         if (logHits)
         {
-            Debug.Log($"[Cue] stroke {strokeSpeed:F1} m/s -> ball {ballSpeed:F1} m/s", this);
+            Debug.Log($"[Cue] meter shot -> ball {ballSpeed:F2} m/s", this);
         }
+        return true;
     }
 
     // Works out which way the ball should fly.

@@ -68,6 +68,9 @@ public class ClubSwitcher : MonoBehaviour
 
         if (GetComponent<ClubStanceLock>() == null)
             gameObject.AddComponent<ClubStanceLock>();
+
+        if (GetComponent<PoolCueShot>() == null)
+            gameObject.AddComponent<PoolCueShot>();
     }
 
     // Start (not Awake) so the ClubHead has finished its own setup first.

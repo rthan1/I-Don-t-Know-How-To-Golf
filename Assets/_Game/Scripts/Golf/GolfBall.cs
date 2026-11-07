@@ -240,6 +240,20 @@ public class GolfBall : MonoBehaviour
     }
 
     /// <summary>
+    /// Moves a resting ball to a new spot and makes that its rest spot (e.g. carried up by the pool table),
+    /// so an out-of-bounds reset or a cancelled throw puts it back there, not where it used to be.
+    /// </summary>
+    public void SetRestingPosition(Vector3 worldPosition)
+    {
+        rb.position = worldPosition;
+        transform.position = worldPosition;
+        if (IsAtRest) LastRestPosition = worldPosition;
+    }
+
+    /// <summary>The ball's radius in world meters (its real collider, not the bigger grab zone).</summary>
+    public float Radius => sphere != null ? WorldRadius() : 0.02f;
+
+    /// <summary>
     /// Sets a resting ball straight down onto whatever is now under it, e.g. after the pool table it was
     /// sitting on goes away. A resting ball is frozen, so it can't fall on its own.
     /// Also fixes LastRestPosition so a later reset doesn't put it back in mid-air.

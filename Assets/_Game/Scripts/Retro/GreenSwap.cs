@@ -127,7 +127,9 @@ public class GreenSwap : MonoBehaviour
 
     /// Finds loose rigidbodies (the ball) over the green and sets them down on top of the new surface.
     /// (Public so the rising pool table can carry the ball up with it.)
-    public void PutBallsOnSurface(GameObject surface)
+    /// settleOnto: also lower a ball that's above the surface, so it ends up exactly on it
+    /// (used once the pool table has finished rising).
+    public void PutBallsOnSurface(GameObject surface, bool settleOnto = false)
     {
         if (surface == null) return;
         Physics.SyncTransforms();
@@ -147,20 +149,27 @@ public class GreenSwap : MonoBehaviour
             Rigidbody body = nearby.attachedRigidbody;
             if (body == null || body.isKinematic || nearby.isTrigger) continue;
 
-            // Look straight down from above for the highest point of the new surface
+            // Look straight down from above for the highest point of the new surface.
+            // Triggers are skipped: the cup's trigger box would otherwise count as the "surface" near the hole.
             Vector3 from = new Vector3(body.position.x, area.max.y + 1f, body.position.z);
-            float radius = nearby.bounds.extents.y;
+            GolfBall golfBall = body.GetComponent<GolfBall>();
+            float radius = golfBall != null ? golfBall.Radius : nearby.bounds.extents.y;
             float top = float.NegativeInfinity;
-            foreach (RaycastHit hit in Physics.RaycastAll(from, Vector3.down, area.size.y + 2f))
+            foreach (RaycastHit hit in Physics.RaycastAll(from, Vector3.down, area.size.y + 2f, ~0, QueryTriggerInteraction.Ignore))
                 if (System.Array.IndexOf(surfaceColliders, hit.collider) >= 0)
                     top = Mathf.Max(top, hit.point.y);
+            if (float.IsNegativeInfinity(top)) continue;
 
-            // Only move it if it would otherwise end up inside or under the new surface
-            if (!float.IsNegativeInfinity(top) && top + radius > body.position.y - 0.01f)
-            {
-                body.position = new Vector3(body.position.x, top + radius + 0.01f, body.position.z);
-                body.WakeUp();
-            }
+            // Move it if it would otherwise end up inside or under the surface (or, when settling, floating above it)
+            float restY = top + radius + 0.002f;
+            bool below = restY > body.position.y + 0.001f;
+            bool above = settleOnto && body.position.y > restY + 0.003f;
+            if (!below && !above) continue;
+
+            Vector3 rest = new Vector3(body.position.x, restY, body.position.z);
+            if (golfBall != null) golfBall.SetRestingPosition(rest); // keeps its reset spot on the table too
+            else body.position = rest;
+            body.WakeUp();
         }
 
         // Clubs are kinematic (skipped above), so lift any lying here up with the surface too.

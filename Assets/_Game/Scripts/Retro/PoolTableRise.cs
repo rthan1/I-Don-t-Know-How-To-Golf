@@ -63,5 +63,6 @@ public class PoolTableRise : MonoBehaviour
             yield return null;
         }
         transform.localPosition = restPosition;
-        if (swap != null) swap.PutBallsOnSurface(gameObject);    }
+        // Final placement: set the ball exactly on the felt (up or down), so it can't end up hovering.
+        if (swap != null) swap.PutBallsOnSurface(gameObject, settleOnto: true);    }
 }
