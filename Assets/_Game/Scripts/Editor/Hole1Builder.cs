@@ -695,6 +695,23 @@ public static class Hole1Builder
         return Vector2.Distance(p, a + ab * along);
     }
 
+    /// Shortest distance between segments a1-a2 and b1-b2 (0 if they cross). A segment can be a single point.
+    static float SegmentsDistance(Vector2 a1, Vector2 a2, Vector2 b1, Vector2 b2)
+    {
+        float Cross(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
+        Vector2 da = a2 - a1, db = b2 - b1;
+        float denom = Cross(da, db);
+        if (Mathf.Abs(denom) > 1e-6f)
+        {
+            float s = Cross(b1 - a1, db) / denom, u = Cross(b1 - a1, da) / denom;
+            if (s >= 0f && s <= 1f && u >= 0f && u <= 1f) return 0f;
+        }
+        float PointToSegment(Vector2 p, Vector2 s0, Vector2 s1) =>
+            (s1 - s0).sqrMagnitude < 1e-8f ? Vector2.Distance(p, s0) : DistanceToSegment(p, s0, s1, out _);
+        return Mathf.Min(Mathf.Min(PointToSegment(a1, b1, b2), PointToSegment(a2, b1, b2)),
+                         Mathf.Min(PointToSegment(b1, a1, a2), PointToSegment(b2, a1, a2)));
+    }
+
     /// Is this world point inside the bend of the dogleg (the right-hand side of the hole), off the fairway?
     static bool InsideDogleg(Vector2 worldPoint)
     {
@@ -1759,6 +1776,7 @@ public static class Hole1Builder
         Vector2 tee = ToWorld(TeeCenter);
         var eye = new Vector3(tee.x, teeHeight + 1.7f, tee.y - 1.0f); // where the player's head is on the tee
         var placedBarrels = new List<Vector2>();
+        var barrelFootprints = new List<(Vector2 a, Vector2 b)>(); // seen from above: a point when standing, a line when tipped
 
         int clusters = 0;
         for (int attempt = 0; attempt < 1500 && clusters < clusterCount; attempt++)
@@ -1787,12 +1805,19 @@ public static class Hole1Builder
                 foreach (var b in Bunkers)
                     if (Ellipse(design, b.center, b.radius) < 1.15f) { inBunker = true; break; }
                 if (inBunker || IsCrowded(placedBarrels, w, 1.05f) || !HiddenFromTee(w)) continue;
-                placedBarrels.Add(w);
-                placedAny = true;
 
                 float ground = GroundHeight(w);
                 bool tipped = rng.NextDouble() < 0.18;
                 forward = Quaternion.Euler(0f, 0f, (float)rng.NextDouble() * 360f) * Vector2.right; // random way it fell
+
+                // A tipped barrel lies along a line from its base to its lid, so check its whole length,
+                // not just its base, against every other barrel
+                Vector2 footEnd = tipped ? w + forward * barrelHeight : w;
+                if (OverlapsBarrel(w, footEnd)) continue;
+                placedBarrels.Add(w);
+                barrelFootprints.Add((w, footEnd));
+                placedAny = true;
+
                 var barrel = new GameObject(tipped ? "TippedBarrel" : "Barrel");
                     barrel.transform.SetParent(barrelParent, false);
                     var along = new Vector3(forward.x, 0f, forward.y);
@@ -1831,6 +1856,15 @@ public static class Hole1Builder
                     GameObjectUtility.SetStaticEditorFlags(barrel, StaticEditorFlags.BatchingStatic);
             }
             if (placedAny) clusters++;
+        }
+
+        // Would a barrel with this footprint (seen from above) touch one that's already placed?
+        bool OverlapsBarrel(Vector2 a, Vector2 b)
+        {
+            const float clearance = barrelRadius * 2f + 0.1f; // the two drums' radii plus a little gap
+            foreach (var other in barrelFootprints)
+                if (SegmentsDistance(a, b, other.a, other.b) < clearance) return true;
+            return false;
         }
 
         // Can the player see a barrel at this spot from the tee? Checks the hills and the tree canopies in between.
