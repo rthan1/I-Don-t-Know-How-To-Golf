@@ -27,6 +27,7 @@ public class StrokeDisplay : MonoBehaviour
     private TextMeshPro text;
     private Camera playerCamera;
     private Transform rig;
+    private GiveUpButton giveUpButton;
 
     private void Start()
     {
@@ -44,6 +45,9 @@ public class StrokeDisplay : MonoBehaviour
         // Dark outline so the text stays readable against the sky and grass.
         text.outlineWidth = 0.2f;
         text.outlineColor = Color.black;
+
+        // GIVE UP button just under the stroke list. It moves with the board.
+        giveUpButton = GiveUpButton.Create(text.transform, new Vector3(-0.13f, -0.3f, 0f));
 
         manager.Changed += Refresh;
         Refresh();
@@ -109,6 +113,12 @@ public class StrokeDisplay : MonoBehaviour
         if (text != null)
         {
             text.text = manager.GetSummaryText();
+        }
+
+        // No giving up once the hole is over.
+        if (giveUpButton != null)
+        {
+            giveUpButton.gameObject.SetActive(!manager.HoleFinished);
         }
     }
 }

@@ -38,6 +38,7 @@ public class StrokeManager : MonoBehaviour
     public int StrokeCount => strokes.Count;
     public IReadOnlyList<Stroke> Strokes => strokes;
     public bool HoleFinished { get; private set; }
+    public bool GaveUp { get; private set; }
 
     private readonly List<Stroke> strokes = new List<Stroke>();
 
@@ -108,6 +109,22 @@ public class StrokeManager : MonoBehaviour
     public void AddPenalty(string reason)
     {
         AddStroke(StrokeKind.Penalty, reason);
+    }
+
+    // Ends the hole early. The score becomes a flat 3x par (a par 4 becomes 12).
+    // If they're already past that, it's their strokes + 1, so giving up always costs at least one stroke.
+    public void GiveUp()
+    {
+        if (HoleFinished) return;
+
+        int finalScore = Mathf.Max(Par * 3, StrokeCount + 1);
+        while (StrokeCount < finalScore)
+        {
+            AddStroke(StrokeKind.Penalty, "GAVE UP");
+        }
+
+        GaveUp = true;
+        FinishHole();
     }
 
     // Call when the ball drops in the cup. Stops counting and fires onHoleFinished.

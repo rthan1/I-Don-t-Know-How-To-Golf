@@ -136,14 +136,18 @@ public sealed class HoleCompleteScreen : MonoBehaviour
         int toPar = strokes - par;
 
         if (_title != null)
-            _title.text = hasNext ? $"{display}\nCOMPLETE" : "ROUND\nCOMPLETE";
+            _title.text = ScoreNames.Headline(strokes, par); // BIRDIE!, PAR, NONUPLE BOGEY...
 
         if (_detail != null)
         {
             string toParText = scores.FormatToPar(toPar);
+            string scoreLine = $"{display}: {strokes} STROKES   PAR {par}   ({toParText})";
+            if (strokes == 1) scoreLine += $"   {ScoreNames.ForToPar(toPar)}"; // a hole in one still shows its name
+            if (manager != null && manager.GaveUp) scoreLine += "   (GAVE UP)";
+
             _detail.text = hasNext
-                ? $"{strokes} STROKES   PAR {par}   ({toParText})"
-                : $"TOTAL {scores.TotalStrokes}   ({scores.FormatToPar(scores.TotalToPar)})\nPRESS A FOR MENU";
+                ? scoreLine
+                : $"{scoreLine}\nROUND TOTAL {scores.TotalStrokes}   ({scores.FormatToPar(scores.TotalToPar)})";
         }
 
         if (_prompt != null)
