@@ -105,6 +105,7 @@ public static class Hole1Builder
         public Vector2 ShortcutStart, ShortcutEnd;
         public float ShortcutHalfWidth;
         public bool SeparateGreen;            // Hole 3: the green is its own swappable object (terrible green / pool table)
+        public bool HasAnimals;               // decorative critters all over the fairway (no colliders)
 
         // Hole 4 extras
         public bool HasRiver;                 // a glowing radioactive river cutting across the hole
@@ -260,6 +261,7 @@ public static class Hole1Builder
         TreeCount = 90,
         CloudCenter = new Vector2(2f, 30f),
         SeparateGreen = true,
+        HasAnimals = true,
     };
 
     /// Hole 4: par 4. A nuclear power plant off to the right is dumping into a glowing radioactive river that
@@ -520,6 +522,7 @@ public static class Hole1Builder
         S = style;
         L = layout;
         linearColor = PlayerSettings.colorSpace == ColorSpace.Linear;
+        animalMeshes = null;
         fireMaterial = null;
         flameMeshes = null;
         smokeMesh = null;
@@ -579,6 +582,7 @@ public static class Hole1Builder
             else BuildCupAndFlag(root.transform, propMat);
             BuildTeeMarkers(root.transform, propMat);
             BuildTrees(root.transform, propMat);
+            if (L.HasAnimals) BuildAnimals(root.transform, propMat);
             if (L.HasBarrels) BuildBarrels(root.transform, propMat); // after the trees: it checks what they hide
             if (S.Retro)
             {
@@ -1827,6 +1831,233 @@ public static class Hole1Builder
         }
     }
 
+    // ================= DECORATIVE ANIMALS =================
+
+    const float AnimalSize = 1.6f; // bigger than life, so they read from across the fairway
+
+    static Dictionary<string, Mesh> animalMeshes;
+
+    /// Low-poly NES-colored critters, built once per build. All face +Z and stand on Y = 0, in meters.
+    static Dictionary<string, Mesh> AnimalMeshes()
+    {
+        if (animalMeshes != null) return animalMeshes;
+
+        Color brown = Hex(0xAC7C00), darkBrown = Hex(0x503000), redBrown = Hex(0x881400), tan = Hex(0xF8D878), cream = Hex(0xFCE0A8);
+        Color lightGray = Hex(0xBCBCBC), gray = Hex(0x7C7C7C), white = Hex(0xFCFCFC), black = Hex(0x000000);
+        Color yellow = Hex(0xF8B800), orange = Hex(0xFCA044), blue = Hex(0x0058F8), green = Hex(0x007800);
+        // Alpha 0 = no random dark specks from the shader
+        Color A(Color c) { c.a = 0f; return c; }
+
+        var meshes = new Dictionary<string, Mesh>();
+        Mesh Make(string name, System.Action<MeshBuilder> build)
+        {
+            var mb = new MeshBuilder();
+            build(mb);
+            return meshes[name] = mb.ToMesh(S.MeshPrefix + "Animal_" + name);
+        }
+        void Small(MeshBuilder mb, Vector3 c, Vector3 r, Color col) => mb.Ellipsoid(c, r, A(col), 3, 6);
+        void Pair(MeshBuilder mb, Vector3 c, Vector3 r, Color col) // a matching left + right pair (eyes, ears, feet)
+        {
+            Small(mb, c, r, col);
+            Small(mb, new Vector3(-c.x, c.y, c.z), r, col);
+        }
+
+        // Groundhog, standing up on lookout
+        Make("Groundhog", mb =>
+        {
+            mb.Ellipsoid(new Vector3(0f, 0.22f, 0f), new Vector3(0.15f, 0.23f, 0.13f), A(brown));
+            mb.Ellipsoid(new Vector3(0f, 0.2f, 0.07f), new Vector3(0.1f, 0.16f, 0.07f), A(tan));      // belly
+            mb.Ellipsoid(new Vector3(0f, 0.5f, 0.03f), new Vector3(0.1f, 0.09f, 0.1f), A(brown));     // head
+            Small(mb, new Vector3(0f, 0.47f, 0.12f), new Vector3(0.05f, 0.04f, 0.05f), tan);          // snout
+            Small(mb, new Vector3(0f, 0.49f, 0.165f), new Vector3(0.02f, 0.018f, 0.015f), black);     // nose
+            Pair(mb, new Vector3(0.05f, 0.53f, 0.1f), new Vector3(0.018f, 0.018f, 0.015f), black);    // eyes
+            Pair(mb, new Vector3(0.075f, 0.585f, 0f), new Vector3(0.03f, 0.025f, 0.02f), darkBrown);  // ears
+            Pair(mb, new Vector3(0.06f, 0.33f, 0.11f), new Vector3(0.035f, 0.03f, 0.03f), darkBrown); // front paws
+            Pair(mb, new Vector3(0.07f, 0.02f, 0.06f), new Vector3(0.05f, 0.025f, 0.06f), darkBrown); // feet
+            Small(mb, new Vector3(0f, 0.06f, -0.13f), new Vector3(0.04f, 0.03f, 0.06f), darkBrown);   // tail
+        });
+
+        // Rabbits (gray and brown)
+        foreach (var (name, fur) in new[] { ("Rabbit", lightGray), ("BrownRabbit", brown) })
+            Make(name, mb =>
+            {
+                mb.Ellipsoid(new Vector3(0f, 0.14f, -0.02f), new Vector3(0.11f, 0.11f, 0.16f), A(fur));
+                mb.Ellipsoid(new Vector3(0f, 0.25f, 0.13f), new Vector3(0.075f, 0.07f, 0.08f), A(fur));   // head
+                Pair(mb, new Vector3(0.03f, 0.38f, 0.1f), new Vector3(0.022f, 0.1f, 0.012f), fur);        // long ears
+                Small(mb, new Vector3(0f, 0.17f, -0.18f), new Vector3(0.05f, 0.05f, 0.05f), white);       // cotton tail
+                Pair(mb, new Vector3(0.05f, 0.27f, 0.18f), new Vector3(0.014f, 0.014f, 0.012f), black);   // eyes
+                Pair(mb, new Vector3(0.04f, 0.03f, 0.1f), new Vector3(0.025f, 0.025f, 0.04f), fur);       // front feet
+                Pair(mb, new Vector3(0.06f, 0.03f, -0.06f), new Vector3(0.035f, 0.03f, 0.07f), fur);      // back feet
+            });
+
+        // Squirrel with a big bushy tail
+        Make("Squirrel", mb =>
+        {
+            mb.Ellipsoid(new Vector3(0f, 0.12f, 0f), new Vector3(0.06f, 0.09f, 0.09f), A(redBrown));
+            Small(mb, new Vector3(0f, 0.11f, 0.04f), new Vector3(0.045f, 0.07f, 0.05f), cream);       // belly
+            mb.Ellipsoid(new Vector3(0f, 0.21f, 0.07f), new Vector3(0.05f, 0.045f, 0.055f), A(redBrown)); // head
+            Pair(mb, new Vector3(0.025f, 0.26f, 0.06f), new Vector3(0.012f, 0.02f, 0.01f), redBrown); // ears
+            Pair(mb, new Vector3(0.03f, 0.22f, 0.11f), new Vector3(0.01f, 0.01f, 0.01f), black);      // eyes
+            mb.Ellipsoid(new Vector3(0f, 0.2f, -0.11f), new Vector3(0.05f, 0.14f, 0.05f), A(redBrown)); // tail
+            Small(mb, new Vector3(0f, 0.33f, -0.06f), new Vector3(0.05f, 0.05f, 0.05f), redBrown);    // tail curl
+        });
+
+        // Mallard duck
+        Make("Duck", mb =>
+        {
+            mb.Ellipsoid(new Vector3(0f, 0.12f, 0f), new Vector3(0.11f, 0.09f, 0.18f), A(lightGray));
+            Pair(mb, new Vector3(0.09f, 0.14f, -0.02f), new Vector3(0.03f, 0.06f, 0.12f), gray);       // wings
+            mb.Ellipsoid(new Vector3(0f, 0.27f, 0.12f), new Vector3(0.06f, 0.06f, 0.065f), A(green));  // head
+            Small(mb, new Vector3(0f, 0.2f, 0.1f), new Vector3(0.045f, 0.03f, 0.045f), white);         // neck ring
+            Small(mb, new Vector3(0f, 0.26f, 0.19f), new Vector3(0.03f, 0.012f, 0.04f), yellow);       // bill
+            Pair(mb, new Vector3(0.04f, 0.29f, 0.15f), new Vector3(0.01f, 0.01f, 0.01f), black);       // eyes
+            Small(mb, new Vector3(0f, 0.15f, -0.18f), new Vector3(0.05f, 0.03f, 0.05f), darkBrown);    // tail
+            Pair(mb, new Vector3(0.04f, 0.01f, 0.03f), new Vector3(0.03f, 0.01f, 0.04f), orange);      // feet
+        });
+
+        // Bluebird
+        Make("Bird", mb =>
+        {
+            Small(mb, new Vector3(0f, 0.07f, 0f), new Vector3(0.045f, 0.045f, 0.07f), blue);
+            Small(mb, new Vector3(0f, 0.06f, 0.02f), new Vector3(0.035f, 0.035f, 0.045f), orange);     // belly
+            Small(mb, new Vector3(0f, 0.12f, 0.05f), new Vector3(0.035f, 0.035f, 0.035f), blue);       // head
+            Small(mb, new Vector3(0f, 0.12f, 0.09f), new Vector3(0.01f, 0.008f, 0.02f), black);        // beak
+            Pair(mb, new Vector3(0.025f, 0.13f, 0.07f), new Vector3(0.008f, 0.008f, 0.008f), black);   // eyes
+            Small(mb, new Vector3(0f, 0.08f, -0.08f), new Vector3(0.015f, 0.01f, 0.04f), blue);        // tail
+        });
+
+        // Deer (and a buck with antlers)
+        foreach (bool antlers in new[] { false, true })
+            Make(antlers ? "Buck" : "Deer", mb =>
+            {
+                mb.Ellipsoid(new Vector3(0f, 0.95f, 0f), new Vector3(0.2f, 0.22f, 0.48f), A(brown));
+                mb.Ellipsoid(new Vector3(0f, 0.86f, 0f), new Vector3(0.14f, 0.12f, 0.36f), A(tan));         // belly
+                foreach (float x in new[] { -0.11f, 0.11f })
+                    foreach (float z in new[] { -0.3f, 0.3f })
+                        mb.Box(new Vector3(x, 0f, z), new Vector3(0.06f, 0.85f, 0.06f), A(darkBrown));      // legs
+                mb.Ellipsoid(new Vector3(0f, 1.2f, 0.38f), new Vector3(0.08f, 0.2f, 0.08f), A(brown));      // neck
+                mb.Ellipsoid(new Vector3(0f, 1.42f, 0.48f), new Vector3(0.08f, 0.08f, 0.14f), A(brown));    // head
+                Small(mb, new Vector3(0f, 1.38f, 0.6f), new Vector3(0.05f, 0.05f, 0.05f), darkBrown);       // muzzle
+                Pair(mb, new Vector3(0.08f, 1.5f, 0.42f), new Vector3(0.05f, 0.03f, 0.02f), brown);         // ears
+                Pair(mb, new Vector3(0.06f, 1.45f, 0.54f), new Vector3(0.012f, 0.012f, 0.012f), black);     // eyes
+                Small(mb, new Vector3(0f, 1.05f, -0.47f), new Vector3(0.05f, 0.07f, 0.03f), white);         // tail
+                if (!antlers) return;
+                foreach (float x in new[] { -0.05f, 0.05f })
+                {
+                    mb.Box(new Vector3(x, 1.48f, 0.42f), new Vector3(0.025f, 0.25f, 0.025f), A(tan));
+                    mb.Box(new Vector3(x * 1.9f, 1.62f, 0.42f), new Vector3(0.025f, 0.13f, 0.025f), A(tan));
+                    mb.Box(new Vector3(x, 1.6f, 0.47f), new Vector3(0.025f, 0.12f, 0.025f), A(tan));
+                }
+            });
+
+        animalMeshes = meshes;
+        return meshes;
+    }
+
+    /// One animal (no collider, so it never gets in the way of a shot) with a little idle animation.
+    static GameObject PlaceAnimal(Transform parent, Material mat, string kind, Vector3 position, float yaw,
+                                  float hopHeight, float hopEvery, float lookEvery, float lookAngle, System.Random rng)
+    {
+        var go = new GameObject(kind);
+        go.transform.SetParent(parent, false);
+        go.transform.position = position;
+        go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        go.transform.localScale = Vector3.one * AnimalSize * Mathf.Lerp(0.9f, 1.15f, (float)rng.NextDouble());
+        go.AddComponent<MeshFilter>().sharedMesh = AnimalMeshes()[kind];
+        go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+        var idle = go.AddComponent<AnimalIdle>();
+        idle.hopHeight = hopHeight * AnimalSize;
+        idle.hopEvery = hopEvery * Mathf.Lerp(0.8f, 1.3f, (float)rng.NextDouble());
+        idle.lookEvery = lookEvery * Mathf.Lerp(0.8f, 1.3f, (float)rng.NextDouble());
+        idle.lookAngle = lookAngle;
+        return go;
+    }
+
+    /// Critters dotted all over the fairway and rough: rabbits, squirrels, birds, groundhogs, ducks around the
+    /// pond, and a few deer at the edges. Purely decorative; none of them have colliders.
+    static void BuildAnimals(Transform parent, Material mat)
+    {
+        var animals = new GameObject("Animals").transform;
+        animals.SetParent(parent, false);
+        var rng = new System.Random(RandomSeed + 60);
+        var placed = new List<Vector2>();
+
+        // A random spot near the hole: 'spread' is how far past the fairway's edge it can go (layout units)
+        bool TrySpot(float spread, float minOut, out Vector2 world)
+        {
+            float t = Mathf.Lerp(0.15f, 0.95f, (float)rng.NextDouble());
+            Vector2 c = PathPoint(t);
+            Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.005f)) - PathPoint(Mathf.Max(0f, t - 0.005f))).normalized;
+            var normal = new Vector2(-forward.y, forward.x);
+            float side = rng.NextDouble() < 0.5 ? -1f : 1f;
+            float across = minOut > 0f
+                ? side * (HalfWidth(t) + Mathf.Lerp(minOut, spread, (float)rng.NextDouble()))
+                : ((float)rng.NextDouble() * 2f - 1f) * (HalfWidth(t) + spread);
+            Vector2 design = c + normal * across;
+            world = ToWorld(design);
+
+            if (Ellipse(design, GreenCenter, GreenRadius) < 1.2f) return false;          // off the green
+            if (Vector2.Distance(design, TeeCenter) < 5f) return false;                   // off the tee
+            if (L.HasPond && Ellipse(design, PondCenter, PondRadius) < 1.3f) return false; // out of the water
+            foreach (var b in Bunkers)
+                if (Ellipse(design, b.center, b.radius) < 1.15f) return false;            // out of the sand
+            if (IsCrowded(placed, world, 2.5f)) return false;
+            placed.Add(world);
+            return true;
+        }
+        void Scatter(string[] kinds, int count, float spread, float minOut, float hop, float hopEvery, float lookEvery, float lookAngle)
+        {
+            int made = 0;
+            for (int attempt = 0; attempt < count * 40 && made < count; attempt++)
+            {
+                if (!TrySpot(spread, minOut, out Vector2 w)) continue;
+                PlaceAnimal(animals, mat, kinds[rng.Next(kinds.Length)], new Vector3(w.x, GroundHeight(w), w.y),
+                            (float)rng.NextDouble() * 360f, hop, hopEvery, lookEvery, lookAngle, rng);
+                made++;
+            }
+        }
+
+        Scatter(new[] { "Rabbit", "BrownRabbit" }, 12, 3f, 0f, 0.1f, 3.5f, 4f, 60f);   // hopping around the fairway
+        Scatter(new[] { "Squirrel" }, 7, 3.5f, 0f, 0.07f, 2f, 2.5f, 80f);
+        Scatter(new[] { "Bird" }, 10, 2f, 0f, 0.05f, 1.5f, 1.5f, 90f);
+        Scatter(new[] { "Groundhog" }, 6, 2.5f, 0f, 0f, 0f, 3.5f, 70f);                 // standing on lookout
+        Scatter(new[] { "Deer", "Deer", "Buck" }, 3, 7f, 3f, 0f, 0f, 6f, 30f);          // out at the edges of the rough
+
+        // Ducks waddling on the shore and paddling on the pond
+        if (L.HasPond)
+        {
+            for (int k = 0; k < 7; k++)
+            {
+                float angle = (float)rng.NextDouble() * Mathf.PI * 2f;
+                bool swimming = k >= 4;
+                float reach = swimming ? Mathf.Lerp(0.2f, 0.7f, (float)rng.NextDouble()) : Mathf.Lerp(1.3f, 1.5f, (float)rng.NextDouble());
+                Vector2 design = PondCenter + new Vector2(Mathf.Cos(angle) * PondRadius.x, Mathf.Sin(angle) * PondRadius.y) * reach;
+                Vector2 w = ToWorld(design);
+                float y = swimming ? waterLevel - 0.05f : GroundHeight(w);
+                PlaceAnimal(animals, mat, "Duck", new Vector3(w.x, y, w.y), (float)rng.NextDouble() * 360f,
+                            0f, 0f, swimming ? 3f : 4.5f, 50f, rng);
+            }
+        }
+    }
+
+    /// Groundhogs popping out of the burrows on the dug-up green (they go away with it when the pool table swaps in).
+    static void BuildBurrowGroundhogs(Transform parent, Material mat)
+    {
+        var rng = new System.Random(RandomSeed + 61);
+        var group = new GameObject("BurrowGroundhogs").transform;
+        group.SetParent(parent, false);
+        foreach (var m in molehills)
+        {
+            if (!m.burrow || rng.NextDouble() < 0.25) continue; // most burrows have someone home
+            Vector2 opening = ToWorld(m.center + m.burrowDir * (m.radius * 0.7f));
+            float surface = GroundhogSurfaceHeight(opening) + GreenSurfaceLift;
+            float yaw = Mathf.Atan2(m.burrowDir.x, m.burrowDir.y) * Mathf.Rad2Deg; // face out of the hole
+            // Sunk into the hole so only the head and shoulders poke out
+            PlaceAnimal(group, mat, "Groundhog", new Vector3(opening.x, surface - 0.12f * AnimalSize, opening.y), yaw,
+                        0f, 0f, 3f, 60f, rng);
+        }
+    }
+
     /// cupBottomY / meshSuffix are only used by Hole 3's two greens; other holes use the defaults.
     static void BuildCupAndFlag(Transform parent, Material mat, float cupBottomY = float.NaN, string meshSuffix = "")
     {
@@ -1882,8 +2113,9 @@ public static class Hole1Builder
         greenRoot.transform.SetParent(parent, false);
 
         PlanGroundhogDamage();
+        BakeGroundhogGreen(); // crisp NES pixel texture for the dug-up green
         GameObject terrible = BuildGreenSurface(greenRoot.transform, mat, true);
-        BuildMolehills(terrible.transform, mat);
+        if (L.HasAnimals) BuildBurrowGroundhogs(terrible.transform, mat);
         GameObject pool = BuildGreenSurface(greenRoot.transform, mat, false);
 
         var swap = greenRoot.AddComponent<GreenSwap>();
@@ -1893,31 +2125,42 @@ public static class Hole1Builder
     }
 
     // ---- Groundhog damage (all in layout units) ----
-    // Molehills: dirt piles dotted all over the green. Tunnels: raised dirt ridges running between them.
-    static List<(Vector2 center, float radius, float height, bool burrow)> molehills;
+    // Molehills: smooth domes of dug-up dirt, many with a burrow hole dug into their side.
+    // Tunnels: raised grassy ridges running between them.
+    static List<(Vector2 center, float radius, float height, bool burrow, Vector2 burrowDir)> molehills;
     static List<(Vector2 a, Vector2 b)> tunnels;
     // Tunnels push the turf up into a rounded grassy ridge (~0.45 m tall, ~2 m wide in the world)
     // with a crack of bare dirt along the very top where the ground split.
     const float TunnelHeight = 0.3f, TunnelWidth = 0.45f, TunnelCrack = 0.86f;
+    // Burrow openings: ~0.7 m across and ~0.4 m deep in the world
+    const float BurrowRadius = 0.18f, BurrowDepth = 0.25f;
+
+    // The baked pixel texture for the groundhog green, and the world area it covers
+    static Material greenBakedMaterial;
+    static Vector2 greenBakeMin, greenBakeSize;
 
     /// Picks where the molehills and tunnels go (repeatable, so every rebuild looks the same).
     static void PlanGroundhogDamage()
     {
         var rng = new System.Random(RandomSeed + 33);
         Vector2 cupDesign = cup / S.Scale;
-        molehills = new List<(Vector2, float, float, bool)>();
-        for (int attempt = 0; attempt < 2000 && molehills.Count < 24; attempt++)
+        molehills = new List<(Vector2, float, float, bool, Vector2)>();
+        for (int attempt = 0; attempt < 2000 && molehills.Count < 18; attempt++)
         {
             var p = GreenCenter + new Vector2(((float)rng.NextDouble() * 2f - 1f) * GreenRadius.x,
                                               ((float)rng.NextDouble() * 2f - 1f) * GreenRadius.y);
-            if (Ellipse(p, GreenCenter, GreenRadius) > 0.85f) continue;   // stay off the very edge
-            if (Vector2.Distance(p, cupDesign) < 1.2f) continue;          // leave the cup itself alone
+            if (Ellipse(p, GreenCenter, GreenRadius) > 0.82f) continue;   // stay off the very edge
+            if (Vector2.Distance(p, cupDesign) < 1.3f) continue;          // leave the cup itself alone
             bool crowded = false;
             foreach (var m in molehills)
-                if (Vector2.Distance(m.center, p) < 1.1f) { crowded = true; break; }
+                if (Vector2.Distance(m.center, p) < 1.5f) { crowded = true; break; }
             if (crowded) continue;
-            molehills.Add((p, Mathf.Lerp(0.3f, 0.55f, (float)rng.NextDouble()), Mathf.Lerp(0.18f, 0.32f, (float)rng.NextDouble()),
-                           rng.NextDouble() < 0.45));
+            float angle = (float)rng.NextDouble() * Mathf.PI * 2f;
+            molehills.Add((p,
+                           Mathf.Lerp(0.42f, 0.7f, (float)rng.NextDouble()),   // radius
+                           Mathf.Lerp(0.2f, 0.34f, (float)rng.NextDouble()),   // height
+                           rng.NextDouble() < 0.65,                            // has a burrow hole
+                           new Vector2(Mathf.Cos(angle), Mathf.Sin(angle))));  // which side the hole is on
         }
 
         // Tunnels: smooth, meandering runs linking each molehill to a neighbor, plus a few that burrow in
@@ -1965,13 +2208,14 @@ public static class Hole1Builder
         }
     }
 
-    /// The groundhog green's surface at a world point: mostly flat, with raised tunnel ridges and a bit of
-    /// heaved-up ground around each molehill. Also returns how much bare dirt shows there (0..1).
-    static float GroundhogGreenHeight(Vector2 worldPoint, out float dirt)
+    /// The groundhog green's surface at a world point (height in world meters), plus what's showing there:
+    /// dirt = bare dug-up dirt (0..1), crack = the split along a tunnel's top, hole = inside a burrow opening.
+    static float GroundhogSurface(Vector2 worldPoint, out float dirt, out float crack, out float hole)
     {
         Vector2 p = worldPoint / S.Scale;
         Vector2 cupDesign = cup / S.Scale;
 
+        // Tunnels: grassy ridges of pushed-up turf
         float ridge = 0f;
         foreach (var t in tunnels)
         {
@@ -1979,73 +2223,125 @@ public static class Hole1Builder
             ridge = Mathf.Max(ridge, Mathf.Exp(-(d * d) / (TunnelWidth * TunnelWidth)));
         }
 
-        float heave = 0f, spill = 0f;
+        // Molehills: smooth domes of dirt, with a burrow opening dug into the side of many of them
+        float mound = 0f, moundDirt = 0f, bowl = 0f, holeRim = 0f;
+        hole = 0f;
         foreach (var m in molehills)
         {
             float d = Vector2.Distance(p, m.center) / m.radius;
-            heave = Mathf.Max(heave, 0.35f * m.height * Mathf.Exp(-d * d * 0.5f));
-            spill = Mathf.Max(spill, Smooth(1.6f, 1.05f, d));   // loose dirt scattered around each pile
+            if (d < 1f)
+            {
+                float k = 1f - d * d;
+                mound = Mathf.Max(mound, m.height * k * k);
+            }
+            moundDirt = Mathf.Max(moundDirt, Smooth(1.3f, 0.95f, d)); // the dome plus a ring of loose dirt
+
+            if (!m.burrow) continue;
+            Vector2 opening = m.center + m.burrowDir * (m.radius * 0.7f);
+            float hd = Vector2.Distance(p, opening) / BurrowRadius;
+            if (hd < 1f)
+            {
+                float k = 1f - hd * hd;
+                bowl = Mathf.Min(bowl, -BurrowDepth * k * k);
+            }
+            hole = Mathf.Max(hole, Smooth(0.85f, 0.5f, hd));
+            holeRim = Mathf.Max(holeRim, Smooth(1.7f, 1.0f, hd)); // dirt kicked out around the opening
         }
 
-        float bumps = 0.05f * Mathf.Sin(p.x * 2.3f) * Mathf.Sin(p.y * 1.9f);  // generally lumpy, dug-up ground
+        float bumps = 0.03f * Mathf.Sin(p.x * 2.3f) * Mathf.Sin(p.y * 1.9f);  // slightly lumpy, dug-up ground
         float calm = Smooth(1.0f, 0.85f, Ellipse(p, GreenCenter, GreenRadius)) // smooth at the edge...
                    * Smooth(0.25f, 0.6f, Vector2.Distance(p, cupDesign));       // ...and right at the cup
 
-        // Bare dirt only in the crack along the top of each tunnel; the sides stay grassy (pushed-up turf)
-        dirt = Mathf.Max(Smooth(TunnelCrack - 0.04f, TunnelCrack + 0.04f, ridge), spill) * calm;
-        return greenHeight + (ridge * TunnelHeight + heave + bumps) * calm * S.HeightScale;
+        crack = Smooth(TunnelCrack - 0.03f, TunnelCrack + 0.03f, ridge) * calm;
+        dirt = Mathf.Max(moundDirt, holeRim) * calm;
+        hole *= calm;
+        return greenHeight + (ridge * TunnelHeight + mound + bowl + bumps) * calm * S.HeightScale;
     }
 
-    /// Dirt piles (with a dark burrow hole on some) sitting on the groundhog green. The ball bumps off them.
-    static void BuildMolehills(Transform parent, Material mat)
+    static float GroundhogSurfaceHeight(Vector2 worldPoint) => GroundhogSurface(worldPoint, out _, out _, out _);
+
+    /// Bakes the groundhog green into a crisp pixel texture (same 8-bit pixels, NES palette and sun shading as the
+    /// rest of the course): checkered turf, brown dirt mounds with darker specks, dark cracks along the tunnels,
+    /// and black burrow openings with a dark-brown rim.
+    static void BakeGroundhogGreen()
     {
-        var dirtColor = S.Dirt;
-        dirtColor.a = 0f;
-        var holeColor = new Color(0f, 0f, 0f, 0f);
-        var meshes = new List<Mesh>();
-        for (int v = 0; v < 3; v++)
-        {
-            var mb = new MeshBuilder();
-            mb.Blob(Vector3.zero, 1f, 5, 8, dirtColor * (0.9f + 0.08f * v), 140 + v, 0.3f);
-            meshes.Add(mb.ToMesh(S.MeshPrefix + "Molehill" + v));
-        }
-        var holeBuilder = new MeshBuilder();
-        holeBuilder.Blob(Vector3.zero, 1f, 3, 8, holeColor, 150, 0.1f);
-        Mesh holeMesh = holeBuilder.ToMesh(S.MeshPrefix + "Burrow");
+        Vector2 center = ToWorld(GreenCenter);
+        Vector2 radius = GreenRadius * S.Scale * 1.03f;
+        // Line the texture up with the ground's pixel grid so the green's pixels match the course
+        greenBakeMin = new Vector2(Mathf.Floor((center.x - radius.x - GridMinX) / BakePixelSize) * BakePixelSize + GridMinX,
+                                   Mathf.Floor((center.y - radius.y - GridMinZ) / BakePixelSize) * BakePixelSize + GridMinZ);
+        int width = Mathf.CeilToInt(radius.x * 2f / BakePixelSize) + 2;
+        int height = Mathf.CeilToInt(radius.y * 2f / BakePixelSize) + 2;
+        greenBakeSize = new Vector2(width * BakePixelSize, height * BakePixelSize);
 
-        var pilesParent = new GameObject("Molehills").transform;
-        pilesParent.SetParent(parent, false);
-        var rng = new System.Random(RandomSeed + 34);
-        foreach (var m in molehills)
-        {
-            Vector2 world = ToWorld(m.center);
-            float radius = m.radius * S.Scale;
-            float height = m.height * S.HeightScale;
-            float ground = GroundhogGreenHeight(world, out _) + GreenSurfaceLift;
+        Vector3 toSun = -(RetroSunRotation * Vector3.forward);
+        Color sun = RetroSunColor.linear * RetroSunIntensity;
+        Color ambientSky = BakeAmbientSky.linear, ambientGround = BakeAmbientGround.linear;
+        Color turf = Color.Lerp(S.GreenDark, S.GreenLight, 0.5f);
+        var pixels = new Color32[width * height];
+        const float e = 0.05f; // step for working out the slope
 
-            var pile = new GameObject("Molehill");
-            pile.transform.SetParent(pilesParent, false);
-            pile.transform.position = new Vector3(world.x, ground - height * 0.25f, world.y);
-            pile.transform.rotation = Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f);
-            pile.transform.localScale = new Vector3(radius, height, radius);
-            Mesh mesh = meshes[rng.Next(meshes.Count)];
-            pile.AddComponent<MeshFilter>().sharedMesh = mesh;
-            pile.AddComponent<MeshRenderer>().sharedMaterial = mat;
-            var collider = pile.AddComponent<MeshCollider>();
-            collider.sharedMesh = mesh;
-            collider.convex = true;
-
-            if (m.burrow)
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
             {
-                // A dark hole on top where the groundhog pops out
-                var hole = new GameObject("Burrow");
-                hole.transform.SetParent(pilesParent, false);
-                hole.transform.position = new Vector3(world.x, ground - height * 0.25f + height * 0.9f, world.y);
-                hole.transform.localScale = new Vector3(radius * 0.38f, height * 0.12f, radius * 0.38f);
-                hole.AddComponent<MeshFilter>().sharedMesh = holeMesh;
-                hole.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                Vector2 w = greenBakeMin + new Vector2((x + 0.5f) * BakePixelSize, (y + 0.5f) * BakePixelSize);
+                GroundhogSurface(w, out float dirt, out float crack, out float hole);
+                float dx = GroundhogSurfaceHeight(w + new Vector2(e, 0f)) - GroundhogSurfaceHeight(w - new Vector2(e, 0f));
+                float dz = GroundhogSurfaceHeight(w + new Vector2(0f, e)) - GroundhogSurfaceHeight(w - new Vector2(0f, e));
+                Vector3 n = new Vector3(-dx / (2f * e), 1f, -dz / (2f * e)).normalized;
+
+                // Turf with the mowing checkerboard
+                Color albedo = turf;
+                int sx = Mathf.FloorToInt(w.x / S.GreenChecker), sz = Mathf.FloorToInt(w.y / S.GreenChecker);
+                int checker = ((sx + sz) % 2 + 2) % 2;
+                albedo *= 1f + (checker * 2 - 1) * BakeCheckerContrast;
+
+                // Dirt (crisp edge), then the tunnel crack, then the burrow opening
+                bool isDirt = dirt > 0.5f;
+                if (isDirt) albedo = S.Dirt;
+                if (crack > 0.5f) albedo = S.ScorchedDirt;
+                if (hole > 0.15f) albedo = S.ScorchedDirt;          // dark-brown rim of the opening
+                if (hole > 0.55f) albedo = new Color(0f, 0f, 0f);   // the hole itself
+
+                // Random dark specks: lots in the dirt, a few in the grass
+                float speckle = isDirt ? 0.18f : BakeSpeckleDensity * 0.5f;
+                if (hole <= 0.15f && Hash(x + 7919, y + 104729) < speckle) albedo *= 0.72f;
+
+                // Same sun and sky lighting as the ground bake (holes stay black)
+                Color linear = new Color(Mathf.Clamp01(albedo.r), Mathf.Clamp01(albedo.g), Mathf.Clamp01(albedo.b)).linear;
+                float diffuse = Mathf.Max(0f, Vector3.Dot(n, toSun)) * BakeSunStrength;
+                Color ambient = Color.Lerp(ambientGround, ambientSky, n.y * 0.5f + 0.5f);
+                Color lit = linear * (sun * diffuse + ambient);
+                Color srgb = new Color(Mathf.Clamp01(lit.r), Mathf.Clamp01(lit.g), Mathf.Clamp01(lit.b)).gamma;
+                pixels[y * width + x] = QuantizeToPalette(srgb, x, y, false);
             }
-        }
+
+        var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.SetPixels32(pixels);
+        texture.Apply();
+        byte[] png = texture.EncodeToPNG();
+        Object.DestroyImmediate(texture);
+
+        EnsureFolder(TextureFolder);
+        string path = TextureFolder + "/" + S.MeshPrefix + "GreenPixels.png";
+        System.IO.File.WriteAllBytes(path, png);
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+        importer.textureType = TextureImporterType.Default;
+        importer.sRGBTexture = true;
+        importer.alphaSource = TextureImporterAlphaSource.None;
+        importer.filterMode = FilterMode.Point;
+        importer.mipmapEnabled = true;
+        importer.wrapMode = TextureWrapMode.Clamp;
+        importer.npotScale = TextureImporterNPOTScale.None;
+        importer.maxTextureSize = 1024;
+        importer.anisoLevel = 2;
+        importer.textureCompression = TextureImporterCompression.Uncompressed;
+        importer.SaveAndReimport();
+
+        greenBakedMaterial = GetShaderMaterial(S.MaterialPrefix + L.Name + "_GreenBaked", BakedShader, m => m.SetFloat("_FogStrength", 0f));
+        greenBakedMaterial.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>(path));
+        EditorUtility.SetDirty(greenBakedMaterial);
     }
 
     /// Distance along a ray from 'from' in direction 'dir' to the edge of an ellipse (all in world meters).
@@ -2060,29 +2356,24 @@ public static class Hole1Builder
     /// One green surface (groundhog green or pool table) as a ring mesh around the cup, with the cup cut into it.
     static GameObject BuildGreenSurface(Transform parent, Material mat, bool terrible)
     {
-        const int segments = 128, rings = 64; // fine enough to show the thin tunnel ridges
+        // Fine enough to shape the tunnels, mounds and burrow holes (the pool table is flat, so it needs far less)
+        int segments = terrible ? 192 : 96, rings = terrible ? 96 : 24;
         Vector2 center = ToWorld(GreenCenter);
         Vector2 radius = GreenRadius * S.Scale;
 
-        Color turf = Color.Lerp(S.GreenDark, S.GreenLight, 0.5f);
-        turf.a = 0f;
-        Color dirtColor = S.Dirt;
-        dirtColor.a = 0f;
         var felt = new Color(0f, 0.47f, 0.97f, 0f);    // NES blue pool-table felt
         var cushion = new Color(0f, 0.35f, 0.97f, 0f); // deeper blue on the rail cushions
         var wood = new Color(0.67f, 0.49f, 0f, 0f);    // NES brown wood
-        var turfPattern = new Vector2(S.GreenChecker, 1f);
 
         var verts = new List<Vector3>();
         var colors = new List<Color>();
         var uvs = new List<Vector2>();
         var tris = new List<int>();
 
-        float HeightAt(Vector2 w, bool atEdge, out float dirt)
+        float HeightAt(Vector2 w, bool atEdge)
         {
-            dirt = 0f;
             if (atEdge) return GroundHeight(w) + GreenSurfaceLift;
-            return (terrible ? GroundhogGreenHeight(w, out dirt) : greenHeight) + GreenSurfaceLift;
+            return (terrible ? GroundhogSurfaceHeight(w) : greenHeight) + GreenSurfaceLift;
         }
 
         // Shared-vertex ring grid, from the cup's rim out to the green's edge (denser near the cup)
@@ -2096,10 +2387,18 @@ public static class Hole1Builder
                 float dist = Mathf.Lerp(CupRadius, edgeDistance, Mathf.Pow(k / (float)rings, 1.3f));
                 Vector2 w = cup + dir * dist;
                 if (k == rings) edgePoints[s] = w;
-                float h = HeightAt(w, k == rings, out float dirt);
-                verts.Add(new Vector3(w.x, h, w.y));
-                colors.Add(ToMeshColor(terrible ? Color.Lerp(turf, dirtColor, dirt) : felt));
-                uvs.Add(terrible ? new Vector2(turfPattern.x, 1f - dirt) : Vector2.zero); // no checkers on bare dirt
+                verts.Add(new Vector3(w.x, HeightAt(w, k == rings), w.y));
+                if (terrible)
+                {
+                    // The look comes from the baked pixel texture (white, alpha 1 = use the texture)
+                    colors.Add(Color.white);
+                    uvs.Add(new Vector2((w.x - greenBakeMin.x) / greenBakeSize.x, (w.y - greenBakeMin.y) / greenBakeSize.y));
+                }
+                else
+                {
+                    colors.Add(ToMeshColor(felt));
+                    uvs.Add(Vector2.zero);
+                }
             }
         for (int k = 0; k < rings; k++)
             for (int s = 0; s < segments; s++)
@@ -2184,7 +2483,7 @@ public static class Hole1Builder
         var surface = new GameObject("Surface");
         surface.transform.SetParent(go.transform, false);
         surface.AddComponent<MeshFilter>().sharedMesh = mesh;
-        surface.AddComponent<MeshRenderer>().sharedMaterial = mat;
+        surface.AddComponent<MeshRenderer>().sharedMaterial = terrible && greenBakedMaterial != null ? greenBakedMaterial : mat;
         surface.AddComponent<MeshCollider>().sharedMesh = mesh;
 
         BuildCupAndFlag(go.transform, mat, bottom, terrible ? "_Terrible" : "_Pool");
@@ -2711,6 +3010,25 @@ public static class Hole1Builder
                     Tri(a, c, d, outward, shade);
                 }
             }
+        }
+
+        /// A smooth low-poly egg/oval shape with separate radii on each axis (used for animal bodies and heads).
+        public void Ellipsoid(Vector3 center, Vector3 radii, Color col, int rings = 5, int sides = 8)
+        {
+            Vector3 Point(int r, int k)
+            {
+                float lat = Mathf.PI * r / rings, lon = Mathf.PI * 2f * k / sides;
+                return center + Vector3.Scale(new Vector3(Mathf.Sin(lat) * Mathf.Cos(lon), Mathf.Cos(lat), Mathf.Sin(lat) * Mathf.Sin(lon)), radii);
+            }
+            for (int r = 0; r < rings; r++)
+                for (int k = 0; k < sides; k++)
+                {
+                    Vector3 a = Point(r, k), b = Point(r, k + 1), c = Point(r + 1, k + 1), d = Point(r + 1, k);
+                    Vector3 outward = (a + b + c + d) * 0.25f - center;
+                    Color shade = col * Mathf.Lerp(1.08f, 0.85f, r / (float)(rings - 1)); // a bit lighter on top
+                    if (r > 0) Tri(a, b, c, outward, shade);          // (the top and bottom rows are single triangles)
+                    if (r < rings - 1) Tri(a, c, d, outward, shade);
+                }
         }
 
         public Mesh ToMesh(string name)
