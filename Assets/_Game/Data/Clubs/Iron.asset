@@ -17,12 +17,13 @@ MonoBehaviour:
   shaftLength: 0.95
   headRadius: 0.06
   loftDegrees: 30
+  liftStrength: 0.3
   speedCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 2
-      value: 3
+      value: 3.3
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -31,16 +32,16 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 8
-      value: 9
-      inSlope: 1.4841053
-      outSlope: 1.4841053
+      value: 9.9
+      inSlope: 1.6325
+      outSlope: 1.6325
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 14
-      value: 13
+      value: 14.3
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -51,7 +52,7 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   minSwingSpeed: 2
-  maxBallSpeed: 13
+  maxBallSpeed: 14.3
   faceAimInfluence: 0
   hapticAmplitude: 0.7
   hapticDuration: 0.1

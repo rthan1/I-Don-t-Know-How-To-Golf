@@ -24,6 +24,9 @@ public class ClubData : ScriptableObject
     [Tooltip("Launch angle above horizontal, in degrees. Low for driver, high for iron, near 0 for putter.")]
     [Range(0f, 60f)] public float loftDegrees = 10f;
 
+    [Tooltip("Backspin lift. Higher = the ball climbs more and carries farther before dropping. 0 = plain arc (putter).")]
+    [Min(0f)] public float liftStrength = 0f;
+
     [Tooltip("Maps swing speed (m/s, horizontal axis) to ball launch speed (m/s, vertical axis).")]
     public AnimationCurve speedCurve = new AnimationCurve(
         new Keyframe(0f, 0f),

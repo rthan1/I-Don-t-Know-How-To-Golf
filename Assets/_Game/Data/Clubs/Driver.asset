@@ -16,13 +16,14 @@ MonoBehaviour:
   visualPrefab: {fileID: 0}
   shaftLength: 1.1
   headRadius: 0.05
-  loftDegrees: 10
+  loftDegrees: 12
+  liftStrength: 0.5
   speedCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 2
-      value: 4
+      value: 4.4
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -31,16 +32,16 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 8
-      value: 12
-      inSlope: 1.4765079
-      outSlope: 1.4765079
+      value: 13.2
+      inSlope: 1.6242
+      outSlope: 1.6242
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 14
-      value: 18
+      value: 19.8
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -51,7 +52,7 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   minSwingSpeed: 2
-  maxBallSpeed: 18
+  maxBallSpeed: 19.8
   faceAimInfluence: 0
   hapticAmplitude: 0.9
   hapticDuration: 0.12
