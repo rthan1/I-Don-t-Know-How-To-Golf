@@ -58,6 +58,13 @@ public class ClubData : ScriptableObject
     [Tooltip("Controller vibration length on hit, in seconds.")]
     [Min(0f)] public float hapticDuration = 0.1f;
 
+    [Header("Sound")]
+    [Tooltip("Played at the club head when this club hits the ball.")]
+    public AudioClip hitSound;
+
+    [Tooltip("Volume of a full-power hit, 0 to 1. Softer hits play quieter than this.")]
+    [Range(0f, 1f)] public float hitVolume = 1f;
+
     // Turns a measured swing speed into a ball launch speed.
     // Returns 0 if the swing was too slow to count.
     public float GetBallSpeed(float swingSpeed)

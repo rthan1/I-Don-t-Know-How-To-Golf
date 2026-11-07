@@ -59,3 +59,5 @@ MonoBehaviour:
   edgeCurveDegrees: 3
   hapticAmplitude: 0.3
   hapticDuration: 0.05
+  hitSound: {fileID: 8300000, guid: 4e96aab3bc5c4e87b05762448024766c, type: 3}
+  hitVolume: 0.5

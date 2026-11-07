@@ -54,6 +54,7 @@ public class ClubHead : MonoBehaviour
     private Rigidbody clubBody;
     private XRGrabInteractable grab;
     private IXRSelectInteractor holder;
+    private AudioSource hitAudio;
 
     // Where the head sits relative to the club's Rigidbody. Worked out in CacheHeadOffset().
     private Vector3 headOffsetLocal;
@@ -255,6 +256,7 @@ public class ClubHead : MonoBehaviour
         LastSweetSpot = 1f - edge;
 
         PlayHaptic();
+        PlayHitSound(ballSpeed);
         onLegitSwing?.Invoke();
 
         // Follow the ball in flight, then place the player next to it (same as after a throw).
@@ -309,6 +311,27 @@ public class ClubHead : MonoBehaviour
         {
             haptics.SendHapticImpulse(clubData.hapticAmplitude, clubData.hapticDuration);
         }
+    }
+
+    // Plays the club's hit sound from the head. Harder hits are louder; a little pitch
+    // variation keeps repeated swings from sounding like the same recording every time.
+    private void PlayHitSound(float ballSpeed)
+    {
+        if (clubData.hitSound == null) return;
+
+        if (hitAudio == null)
+        {
+            hitAudio = gameObject.AddComponent<AudioSource>();
+            hitAudio.playOnAwake = false;
+            hitAudio.spatialBlend = 1f;  // 3D, so it comes from the club in the headset
+            hitAudio.dopplerLevel = 0f;  // the head moves fast; doppler would bend the pitch
+            hitAudio.minDistance = 2f;   // full volume at arm's length
+            hitAudio.maxDistance = 60f;
+        }
+
+        float power = clubData.maxBallSpeed > 0f ? Mathf.Clamp01(ballSpeed / clubData.maxBallSpeed) : 1f;
+        hitAudio.pitch = Random.Range(0.96f, 1.04f);
+        hitAudio.PlayOneShot(clubData.hitSound, clubData.hitVolume * Mathf.Lerp(0.35f, 1f, power));
     }
 
     private void OnGrabbed(SelectEnterEventArgs args)
