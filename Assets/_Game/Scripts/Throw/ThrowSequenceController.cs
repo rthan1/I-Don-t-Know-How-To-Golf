@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.XR;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Readers;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation;
@@ -50,6 +49,7 @@ namespace Golf.Throwing
         XRInputButtonReader _simulatorQuickActionInput;
         XRInputButtonReader.InputSourceMode _savedQuickActionMode;
         bool _quickActionSuppressed;
+        bool _aButtonHeldLastFrame;
 
         public ThrowPhase Phase { get; private set; } = ThrowPhase.Idle;
         public bool IsActive => Phase != ThrowPhase.Idle && Phase != ThrowPhase.Launching;
@@ -346,14 +346,21 @@ namespace Golf.Throwing
             _manager = null;
             _launchQueued = false;
             _nextConfirmTime = 0f;
+            _aButtonHeldLastFrame = false;
             Phase = ThrowPhase.Idle;
         }
 
-        static bool WasConfirmPressed()
+        bool WasConfirmPressed()
         {
-            // Quest A = right controller primaryButton. Keep F for desktop/simulator.
-            var right = XRController.rightHand;
-            if (right != null && right.primaryButton.wasPressedThisFrame)
+            // Quest A = right-hand primary button. Keep F for desktop/simulator.
+            bool aHeld = false;
+            var right = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.RightHand);
+            if (right.isValid)
+                right.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out aHeld);
+
+            bool aPressed = aHeld && !_aButtonHeldLastFrame;
+            _aButtonHeldLastFrame = aHeld;
+            if (aPressed)
                 return true;
 
             var keyboard = Keyboard.current;
@@ -368,7 +375,7 @@ namespace Golf.Throwing
                     return;
 
                 var sim = XRInteractionSimulator.instance
-                          ?? Object.FindFirstObjectByType<XRInteractionSimulator>(FindObjectsInactive.Include);
+                          ?? Object.FindAnyObjectByType<XRInteractionSimulator>(FindObjectsInactive.Include);
                 if (sim == null || sim.togglePerformQuickActionInput == null)
                     return;
 
