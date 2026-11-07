@@ -234,7 +234,7 @@ public class ClubHead : MonoBehaviour
         float sidePush = clubData.edgeCurveDegrees * edge * Mathf.Sign(offsetAlongFace);
         direction = Quaternion.AngleAxis(sidePush, Vector3.up) * direction;
 
-        if (!ball.Launch(direction * ballSpeed, clubData.liftStrength)) return;
+        if (!ball.Launch(direction * ballSpeed, clubData.liftStrength, ShotType.Swing, clubData.clubName)) return;
 
         lastHitTime = Time.time;
         LastSwingSpeed = swingSpeed;

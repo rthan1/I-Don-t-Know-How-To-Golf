@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEngine.Events;
 
+// How the ball got launched. The stroke counter uses this to label each stroke.
+public enum ShotType { Swing, Throw }
+
 // The golf ball. Sets up its own physics, figures out when it has stopped,
 // and accepts launches from the club. The club never pushes the ball physically;
 // it calls Launch() with a velocity and Unity handles the flight and roll from there.
@@ -64,6 +67,13 @@ public class GolfBall : MonoBehaviour
     public bool IsAtRest { get; private set; }
     public bool IsGrounded { get; private set; }
     public Vector3 LastRestPosition { get; private set; }
+
+    // Fires for every launch, from any ball: (ball, shot type, label such as "Driver" or "Throw").
+    public static event System.Action<GolfBall, ShotType, string> Launched;
+
+    // Clears the event when Play mode starts, in case Unity's domain reload is turned off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => Launched = null;
 
     private Rigidbody rb;
     private SphereCollider sphere;
@@ -181,8 +191,9 @@ public class GolfBall : MonoBehaviour
     }
 
     // Sends the ball off with the given world-space velocity (m/s) and optional backspin lift.
+    // Anything that doesn't say otherwise (like the cheat-throw code) counts as a throw.
     // Only works while the ball is at rest. Returns true if the launch happened.
-    public bool Launch(Vector3 velocity, float lift = 0f)
+    public bool Launch(Vector3 velocity, float lift = 0f, ShotType shotType = ShotType.Throw, string label = null)
     {
         if (!IsAtRest)
         {
@@ -202,6 +213,7 @@ public class GolfBall : MonoBehaviour
         liftActive = lift > 0f;
 
         onLaunched?.Invoke();
+        Launched?.Invoke(this, shotType, string.IsNullOrEmpty(label) ? shotType.ToString() : label);
         return true;
     }
 
