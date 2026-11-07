@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
@@ -17,11 +18,13 @@ namespace Golf.Throwing
         const float GrabWorldRadius = 0.25f;
         const float ProximityGrabDistance = 2.5f;
 
+        GolfBall _ball;
         ThrowSequenceController _sequence;
         XRGrabInteractable _grab;
         SphereCollider _grabVolume;
         bool _wired;
         bool _selectHeldLastFrame;
+        float _suppressPickupUntil;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void WireAllBallsInScene()
@@ -45,13 +48,19 @@ namespace Golf.Throwing
 
         void Awake() => EnsureWired();
 
-        void Update() => TryProximityGrabFallback();
+        void Update()
+        {
+            SyncGrabAvailable();
+            TryKeyboardPickup();
+            TryProximityGrabFallback();
+        }
 
         void OnDestroy() => Unwire();
 
         public void EnsureWired()
         {
             var body = GetComponent<Rigidbody>();
+            _ball = GetComponent<GolfBall>();
 
             _grab = GetComponent<XRGrabInteractable>();
             if (_grab == null)
@@ -89,6 +98,30 @@ namespace Golf.Throwing
             }
 
             Wire();
+            SyncGrabAvailable();
+        }
+
+        void SyncGrabAvailable()
+        {
+            if (_grab == null || _ball == null)
+                return;
+
+            // Brief lockout after a manual cancel so the same press can't re-grab.
+            if (Time.time < _suppressPickupUntil)
+            {
+                if (_grab.enabled)
+                    _grab.enabled = false;
+                return;
+            }
+
+            // Keep grab enabled while already held / in throw UI.
+            if (_grab.isSelected || (_sequence != null && _sequence.IsActive))
+                return;
+
+            // Holding a club means the ball is not grabbable (Quest + simulator).
+            bool allowPickup = _ball.IsAtRest && !IsAnyClubHeld();
+            if (_grab.enabled != allowPickup)
+                _grab.enabled = allowPickup;
         }
 
         void EnsureGrabVolume()
@@ -121,16 +154,69 @@ namespace Golf.Throwing
             _grabVolume.radius = GrabWorldRadius / lossy;
         }
 
+        void TryKeyboardPickup()
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard == null || !keyboard.gKey.wasPressedThisFrame)
+                return;
+
+            if (_grab == null || _sequence == null || _ball == null)
+                return;
+
+            // G toggles: pick up when at rest, drop/cancel if already holding.
+            if (_grab.isSelected || _sequence.IsActive)
+            {
+                DropOrCancelHold();
+                return;
+            }
+
+            if (!_ball.IsAtRest || !_grab.enabled || IsAnyClubHeld())
+                return;
+
+            TryForceSelectEnter();
+        }
+
+        void DropOrCancelHold()
+        {
+            // Block an immediate re-grab from the same select press after we force-exit.
+            _suppressPickupUntil = Time.time + 0.25f;
+
+            if (_sequence != null && _sequence.Phase != ThrowPhase.Idle)
+                _sequence.CancelThrow();
+
+            TryForceSelectExit();
+
+            if (_grab != null && _grab.isSelected)
+            {
+                _grab.enabled = false;
+                _grab.enabled = true;
+            }
+
+            if (_grab != null)
+                _grab.enabled = false;
+        }
+
         void TryProximityGrabFallback()
         {
-            if (_grab == null || _sequence == null)
+            if (_grab == null || _sequence == null || _ball == null)
+                return;
+            if (!_ball.IsAtRest || !_grab.enabled)
                 return;
             if (_grab.isSelected || _sequence.IsActive)
+                return;
+            if (IsAnyClubHeld())
                 return;
 
             XRBaseInputInteractor interactor = FindPreferredInteractor(out bool selectPressed);
             if (interactor == null)
                 return;
+
+            // Already holding something (club, etc.) with this hand — don't steal for the ball.
+            if (interactor.hasSelection)
+            {
+                _selectHeldLastFrame = selectPressed;
+                return;
+            }
 
             bool risingEdge = selectPressed && !_selectHeldLastFrame;
             _selectHeldLastFrame = selectPressed;
@@ -140,12 +226,46 @@ namespace Golf.Throwing
             if (Vector3.Distance(interactor.transform.position, transform.position) > ProximityGrabDistance)
                 return;
 
+            TryForceSelectEnter(interactor);
+        }
+
+        void TryForceSelectEnter(XRBaseInputInteractor preferred = null)
+        {
+            if (IsAnyClubHeld())
+                return;
+
+            XRBaseInputInteractor interactor = preferred;
+            if (interactor == null)
+                interactor = FindPreferredInteractor(out _);
+            if (interactor == null)
+                return;
+
+            if (interactor.hasSelection)
+                return;
+
+            if (Vector3.Distance(interactor.transform.position, transform.position) > ProximityGrabDistance)
+                return;
+
             var manager = interactor.interactionManager
-                          ?? FindFirstObjectByType<XRInteractionManager>();
+                          ?? FindAnyObjectByType<XRInteractionManager>();
             if (manager == null)
                 return;
 
             manager.SelectEnter((IXRSelectInteractor)interactor, (IXRSelectInteractable)_grab);
+        }
+
+        void TryForceSelectExit()
+        {
+            if (_grab == null || !_grab.isSelected)
+                return;
+
+            var interactor = _grab.firstInteractorSelecting;
+            var manager = _grab.interactionManager
+                          ?? FindAnyObjectByType<XRInteractionManager>();
+            if (manager == null || interactor == null)
+                return;
+
+            manager.SelectExit(interactor, _grab);
         }
 
         static XRBaseInputInteractor FindPreferredInteractor(out bool selectPressed)
@@ -211,8 +331,52 @@ namespace Golf.Throwing
             _wired = false;
         }
 
-        void OnSelectEntered(SelectEnterEventArgs args) => _sequence.TryBegin(args);
+        void OnSelectEntered(SelectEnterEventArgs args)
+        {
+            if (Time.time < _suppressPickupUntil)
+            {
+                if (args.manager != null && args.interactorObject != null)
+                    args.manager.SelectExit(args.interactorObject, _grab);
+                return;
+            }
+
+            if (IsAnyClubHeld())
+            {
+                if (args.manager != null && args.interactorObject != null)
+                    args.manager.SelectExit(args.interactorObject, _grab);
+                return;
+            }
+
+            if (_ball != null && !_ball.IsAtRest)
+            {
+                if (args.manager != null && args.interactorObject != null)
+                    args.manager.SelectExit(args.interactorObject, _grab);
+                return;
+            }
+
+            if (!_sequence.TryBegin(args))
+            {
+                if (args.manager != null && args.interactorObject != null)
+                    args.manager.SelectExit(args.interactorObject, _grab);
+            }
+        }
 
         void OnSelectExited(SelectExitEventArgs args) => _sequence.HandleReleased(args);
+
+        static bool IsAnyClubHeld()
+        {
+            var clubs = Object.FindObjectsByType<ClubSwitcher>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < clubs.Length; i++)
+            {
+                if (clubs[i] == null)
+                    continue;
+
+                var clubGrab = clubs[i].GetComponent<XRGrabInteractable>();
+                if (clubGrab != null && clubGrab.isSelected)
+                    return true;
+            }
+
+            return false;
+        }
     }
 }

@@ -11,7 +11,7 @@ using UnityEngine.InputSystem;
 ///
 /// Put this on any active object in a scene that has a GreenSwap (Hole 3's builder adds it to the "Green" object).
 /// </summary>
-public class PoolTableCheat : MonoBehaviour
+public class PoolTableCheat : MonoBehaviour, ICatchableCheat
 {
     [Tooltip("The green to swap. Found automatically if left empty.")]
     public GreenSwap green;
@@ -22,7 +22,7 @@ public class PoolTableCheat : MonoBehaviour
     [Tooltip("Pressing the button again switches back to the normal green (handy while testing).")]
     public bool pressAgainToUndo = true;
 
-    [Tooltip("Runs when the pool table turns on. Hook up the security cameras / stroke penalty here.")]
+    [Tooltip("Runs when the pool table turns on. (Getting caught by the security cameras is handled by SecurityCameraSystem.)")]
     public UnityEvent onCheatUsed;
 
     [Header("Only on the green")]
@@ -53,12 +53,22 @@ public class PoolTableCheat : MonoBehaviour
     {
         cheatButton.performed += OnCheatPressed;
         cheatButton.Enable();
+        SecurityCameraSystem.Register(this);
     }
 
     void OnDisable()
     {
         cheatButton.performed -= OnCheatPressed;
         cheatButton.Disable();
+        SecurityCameraSystem.Unregister(this);
+    }
+
+    // ---- Security cameras: the pool table counts as cheating the whole time it's up ----
+    public bool IsCheating => green != null && green.IsPoolTable;
+    public string CheatName => "Pool Table";
+    public void OnCaught()
+    {
+        if (green != null) green.SetPoolTable(false);
     }
 
     void OnCheatPressed(InputAction.CallbackContext context) => Activate();

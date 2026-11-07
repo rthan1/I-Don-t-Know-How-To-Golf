@@ -27,7 +27,7 @@ using UnityEngine.SceneManagement;
 ///
 /// Coordinates: the player tees off at the world origin facing +Z. The hole is about 65 m long and doglegs right.
 /// </summary>
-public static class Hole1Builder
+public static partial class Hole1Builder
 {
     const string MaterialFolder = "Assets/_Game/Materials";
     const string MeshFolder = "Assets/_Game/Models/Generated";
@@ -584,6 +584,7 @@ public static class Hole1Builder
             BuildTrees(root.transform, propMat);
             if (L.HasAnimals) BuildAnimals(root.transform, propMat);
             if (L.HasBarrels) BuildBarrels(root.transform, propMat); // after the trees: it checks what they hide
+            BuildSecurityCameras(root.transform, propMat);
             if (S.Retro)
             {
                 BuildBushes(root.transform, propMat);
@@ -692,6 +693,23 @@ public static class Hole1Builder
         Vector2 ab = b - a;
         along = Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
         return Vector2.Distance(p, a + ab * along);
+    }
+
+    /// Shortest distance between segments a1-a2 and b1-b2 (0 if they cross). A segment can be a single point.
+    static float SegmentsDistance(Vector2 a1, Vector2 a2, Vector2 b1, Vector2 b2)
+    {
+        float Cross(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
+        Vector2 da = a2 - a1, db = b2 - b1;
+        float denom = Cross(da, db);
+        if (Mathf.Abs(denom) > 1e-6f)
+        {
+            float s = Cross(b1 - a1, db) / denom, u = Cross(b1 - a1, da) / denom;
+            if (s >= 0f && s <= 1f && u >= 0f && u <= 1f) return 0f;
+        }
+        float PointToSegment(Vector2 p, Vector2 s0, Vector2 s1) =>
+            (s1 - s0).sqrMagnitude < 1e-8f ? Vector2.Distance(p, s0) : DistanceToSegment(p, s0, s1, out _);
+        return Mathf.Min(Mathf.Min(PointToSegment(a1, b1, b2), PointToSegment(a2, b1, b2)),
+                         Mathf.Min(PointToSegment(b1, a1, a2), PointToSegment(b2, a1, a2)));
     }
 
     /// Is this world point inside the bend of the dogleg (the right-hand side of the hole), off the fairway?
@@ -1727,13 +1745,26 @@ public static class Hole1Builder
         barrelParent.SetParent(parent, false);
         var rng = new System.Random(RandomSeed + 44);
 
-        // A yellow drum with two black bands, 1 unit wide and tall (scaled when placed)
+        // A solid yellow drum with two black bands, 1 unit wide and tall (scaled when placed).
+        // One smooth wall split into colored rings, closed at the top and bottom, so there's no hollow to see into.
         var mb = new MeshBuilder();
-        mb.Cylinder(1f, 0f, 0.15f, 10, HazardYellow);
-        mb.Cylinder(1.02f, 0.15f, 0.22f, 10, NesBlack);
-        mb.Cylinder(1f, 0.22f, 0.78f, 10, HazardYellow);
-        mb.Cylinder(1.02f, 0.78f, 0.85f, 10, NesBlack);
-        mb.Cylinder(1f, 0.85f, 1f, 10, HazardYellow);
+        const int drumSides = 12;
+        float[] ringHeights = { 0f, 0.15f, 0.22f, 0.78f, 0.85f, 1f };
+        Color[] ringColors = { HazardYellow, NesBlack, HazardYellow, NesBlack, HazardYellow };
+        for (int k = 0; k < drumSides; k++)
+        {
+            float a0 = k * Mathf.PI * 2f / drumSides, a1 = (k + 1) * Mathf.PI * 2f / drumSides;
+            var p0 = new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0));
+            var p1 = new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1));
+            Vector3 outward = p0 + p1;
+            for (int ring = 0; ring < ringColors.Length; ring++)
+            {
+                Vector3 up0 = Vector3.up * ringHeights[ring], up1 = Vector3.up * ringHeights[ring + 1];
+                mb.Quad(p0 + up0, p1 + up0, p1 + up1, p0 + up1, outward, ringColors[ring]);
+            }
+            mb.Tri(Vector3.up, p0 + Vector3.up, p1 + Vector3.up, Vector3.up, HazardYellow * 0.9f); // lid
+            mb.Tri(Vector3.zero, p0, p1, Vector3.down, HazardYellow * 0.6f);                      // bottom
+        }
         Mesh barrelMesh = mb.ToMesh(S.MeshPrefix + "Barrel");
 
         var puddleBuilder = new MeshBuilder();
@@ -1745,6 +1776,7 @@ public static class Hole1Builder
         Vector2 tee = ToWorld(TeeCenter);
         var eye = new Vector3(tee.x, teeHeight + 1.7f, tee.y - 1.0f); // where the player's head is on the tee
         var placedBarrels = new List<Vector2>();
+        var barrelFootprints = new List<(Vector2 a, Vector2 b)>(); // seen from above: a point when standing, a line when tipped
 
         int clusters = 0;
         for (int attempt = 0; attempt < 1500 && clusters < clusterCount; attempt++)
@@ -1773,12 +1805,19 @@ public static class Hole1Builder
                 foreach (var b in Bunkers)
                     if (Ellipse(design, b.center, b.radius) < 1.15f) { inBunker = true; break; }
                 if (inBunker || IsCrowded(placedBarrels, w, 1.05f) || !HiddenFromTee(w)) continue;
-                placedBarrels.Add(w);
-                placedAny = true;
 
                 float ground = GroundHeight(w);
                 bool tipped = rng.NextDouble() < 0.18;
                 forward = Quaternion.Euler(0f, 0f, (float)rng.NextDouble() * 360f) * Vector2.right; // random way it fell
+
+                // A tipped barrel lies along a line from its base to its lid, so check its whole length,
+                // not just its base, against every other barrel
+                Vector2 footEnd = tipped ? w + forward * barrelHeight : w;
+                if (OverlapsBarrel(w, footEnd)) continue;
+                placedBarrels.Add(w);
+                barrelFootprints.Add((w, footEnd));
+                placedAny = true;
+
                 var barrel = new GameObject(tipped ? "TippedBarrel" : "Barrel");
                     barrel.transform.SetParent(barrelParent, false);
                     var along = new Vector3(forward.x, 0f, forward.y);
@@ -1797,19 +1836,35 @@ public static class Hole1Builder
                     }
                     else
                     {
-                        barrel.transform.position = new Vector3(w.x, ground - 0.05f, w.y);
+                        // Sit it on the lowest point under its base, so it never hovers on a slope
+                        float lowest = ground;
+                        for (int s = 0; s < 8; s++)
+                        {
+                            float angle = s * Mathf.PI / 4f;
+                            lowest = Mathf.Min(lowest, GroundHeight(w + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * barrelRadius));
+                        }
+                        barrel.transform.position = new Vector3(w.x, lowest - 0.02f, w.y);
                         barrel.transform.rotation = Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f);
                     }
                     barrel.transform.localScale = new Vector3(barrelRadius, barrelHeight, barrelRadius);
                     barrel.AddComponent<MeshFilter>().sharedMesh = barrelMesh;
                     barrel.AddComponent<MeshRenderer>().sharedMaterial = mat;
-                    var collider = barrel.AddComponent<CapsuleCollider>();
-                    collider.center = new Vector3(0f, 0.5f, 0f);
-                    collider.radius = 1f;
-                    collider.height = 1f;
+                    // Collider shaped exactly like the drum (flat top and bottom), so the ball hits what it sees
+                    var collider = barrel.AddComponent<MeshCollider>();
+                    collider.sharedMesh = barrelMesh;
+                    collider.convex = true;
                     GameObjectUtility.SetStaticEditorFlags(barrel, StaticEditorFlags.BatchingStatic);
             }
             if (placedAny) clusters++;
+        }
+
+        // Would a barrel with this footprint (seen from above) touch one that's already placed?
+        bool OverlapsBarrel(Vector2 a, Vector2 b)
+        {
+            const float clearance = barrelRadius * 2f + 0.1f; // the two drums' radii plus a little gap
+            foreach (var other in barrelFootprints)
+                if (SegmentsDistance(a, b, other.a, other.b) < clearance) return true;
+            return false;
         }
 
         // Can the player see a barrel at this spot from the tee? Checks the hills and the tree canopies in between.
@@ -2440,7 +2495,6 @@ public static class Hole1Builder
         const float cushionWidth = 0.45f, cushionHeight = 0.18f;
         const float frameWidth = PoolRailWidth - cushionWidth, frameHeight = 0.24f;
         const float tableHeight = 1.0f;          // felt height above the ground
-        const float pocketGap = 0.8f, pocketRadius = 0.5f;
         float outerX = halfX + cushionWidth + frameWidth, outerZ = halfZ + cushionWidth + frameWidth;
 
         // Whatever is underneath: the dug-up green inside its edge, the normal ground outside it
@@ -2461,8 +2515,52 @@ public static class Hole1Builder
         var mb = new MeshBuilder();
         Vector3 W(float x, float y, float z) => new Vector3(center.x + x, y, center.y + z); // table-relative to world
 
-        // ---- Felt: flat ring mesh from the cup out to the felt's rectangular edge ----
-        const int segments = 96, rings = 20;
+        // ---- Pockets: the four corners and the middle of each long side (table-relative positions) ----
+        const float cornerPocket = 0.62f, sidePocket = 0.5f, rimWidth = 0.12f;
+        var pockets = new List<(Vector2 at, float radius)>();
+        foreach (float sx in new[] { -1f, 1f })
+            foreach (float sz in new[] { -1f, 1f })
+                pockets.Add((new Vector2(sx * (halfX + 0.12f), sz * (halfZ + 0.12f)), cornerPocket));
+        foreach (float sz in new[] { -1f, 1f })
+            pockets.Add((new Vector2(0f, sz * (halfZ + 0.18f)), sidePocket));
+
+        float frameBottom = top - 0.3f;
+        float frameTop = top + frameHeight;
+        float apronBottom = frameBottom - 0.22f;
+        float pocketBottom = frameBottom + 0.02f;
+
+        // What's at a table-relative point: 0 = felt, 1 = cushion, 2 = wooden frame, 3 = pocket hole, 4 = off the table
+        int KindAt(Vector2 p, out float height, out Color col)
+        {
+            float ax = Mathf.Abs(p.x), az = Mathf.Abs(p.y);
+            float nearestRim = float.MaxValue;
+            foreach (var pocket in pockets)
+            {
+                float d = Vector2.Distance(p, pocket.at) - pocket.radius;
+                if (d < 0f) { height = pocketBottom; col = black; return 3; }
+                nearestRim = Mathf.Min(nearestRim, d);
+            }
+            if (ax > outerX || az > outerZ) { height = apronBottom; col = wood; return 4; }
+            if (ax <= halfX && az <= halfZ) { height = top; col = felt; return 0; }
+            bool rim = nearestRim < rimWidth; // leather trim around each pocket
+            if (Mathf.Max(ax - halfX, az - halfZ) < cushionWidth) { height = top + cushionHeight; col = rim ? leather : cushion; return 1; }
+            height = frameTop;
+            col = rim ? leather : wood;
+            return 2;
+        }
+
+        // Distance along a ray to where it first enters a circle (or MaxValue if it misses)
+        float RayToCircle(Vector2 from, Vector2 dir, Vector2 c, float r)
+        {
+            Vector2 o = from - c;
+            float b = Vector2.Dot(o, dir), disc = b * b - (o.sqrMagnitude - r * r);
+            if (disc < 0f) return float.MaxValue;
+            float t = -b - Mathf.Sqrt(disc);
+            return t > 0f ? t : float.MaxValue;
+        }
+
+        // ---- Felt: flat ring mesh from the cup out to the felt's edge, with the pockets notched out ----
+        const int segments = 128, rings = 20;
         Vector2 half = new Vector2(halfX, halfZ);
         var grid = new Vector3[rings + 1, segments];
         for (int k = 0; k <= rings; k++)
@@ -2470,7 +2568,9 @@ public static class Hole1Builder
             {
                 float angle = s * Mathf.PI * 2f / segments;
                 var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-                float dist = Mathf.Lerp(CupRadius, RayToRect(cup, dir, center, half), Mathf.Pow(k / (float)rings, 1.3f));
+                float edge = RayToRect(cup, dir, center, half);
+                foreach (var pocket in pockets) edge = Mathf.Min(edge, RayToCircle(cup, dir, center + pocket.at, pocket.radius));
+                float dist = Mathf.Lerp(CupRadius, edge, Mathf.Pow(k / (float)rings, 1.3f));
                 Vector2 w = cup + dir * dist;
                 grid[k, s] = new Vector3(w.x, top, w.y);
             }
@@ -2496,39 +2596,63 @@ public static class Hole1Builder
             mb.Tri(cupCenter, aBottom, bBottom, Vector3.up, A(S.CupInside));
         }
 
-        // ---- Cushions: padded blue rails, broken up by the pockets ----
-        void BoxSpan(float x0, float x1, float z0, float z1, float y0, float y1, Color col) =>
-            mb.Box(W((x0 + x1) * 0.5f, y0, (z0 + z1) * 0.5f), new Vector3(x1 - x0, y1 - y0, z1 - z0), A(col));
+        // ---- Rails: the padded cushion and the wooden frame all the way around, built from small blocks so the
+        //      pockets are cut cleanly out of them (the little steps around each pocket suit the 8-bit look) ----
+        void Wall(Vector2 neighbor, float ax, float az, float bx, float bz, Vector3 facing, float height, Color col)
+        {
+            int neighborKind = KindAt(neighbor, out float neighborHeight, out _);
+            if (neighborHeight >= height - 0.001f) return; // no drop on this side
+            Color wallColor = neighborKind == 3 ? black : neighborKind == 0 ? cushion : col * 0.8f;
+            float low = neighborKind == 4 ? apronBottom : neighborHeight;
+            mb.Quad(W(ax, low, az), W(bx, low, bz), W(bx, height, bz), W(ax, height, az), facing, A(wallColor));
+        }
+        void RailBlocks(float x0, float x1, float z0, float z1)
+        {
+            const float blockSize = 0.15f;
+            int nx = Mathf.Max(1, Mathf.RoundToInt((x1 - x0) / blockSize)), nz = Mathf.Max(1, Mathf.RoundToInt((z1 - z0) / blockSize));
+            float cx = (x1 - x0) / nx, cz = (z1 - z0) / nz;
+            for (int i = 0; i < nx; i++)
+                for (int j = 0; j < nz; j++)
+                {
+                    float xa = x0 + i * cx, xb = xa + cx, za = z0 + j * cz, zb = za + cz;
+                    var c = new Vector2((xa + xb) * 0.5f, (za + zb) * 0.5f);
+                    int kind = KindAt(c, out float h, out Color col);
+                    if (kind != 1 && kind != 2) continue; // felt, pockets and off-table get nothing here
+                    mb.Quad(W(xa, h, za), W(xb, h, za), W(xb, h, zb), W(xa, h, zb), Vector3.up, A(col));
+                    Wall(c + new Vector2(cx, 0f), xb, za, xb, zb, Vector3.right, h, col);
+                    Wall(c - new Vector2(cx, 0f), xa, za, xa, zb, Vector3.left, h, col);
+                    Wall(c + new Vector2(0f, cz), xa, zb, xb, zb, Vector3.forward, h, col);
+                    Wall(c - new Vector2(0f, cz), xa, za, xb, za, Vector3.back, h, col);
+                }
+        }
         foreach (float sign in new[] { -1f, 1f })
         {
-            float zIn = sign * halfZ, zOut = sign * (halfZ + cushionWidth);
-            // Long sides: two cushions each, split by the middle pocket
-            BoxSpan(-halfX + pocketGap, -pocketGap, Mathf.Min(zIn, zOut), Mathf.Max(zIn, zOut), top - 0.05f, top + cushionHeight, cushion);
-            BoxSpan(pocketGap, halfX - pocketGap, Mathf.Min(zIn, zOut), Mathf.Max(zIn, zOut), top - 0.05f, top + cushionHeight, cushion);
-            // Short sides: one cushion each
-            float xIn = sign * halfX, xOut = sign * (halfX + cushionWidth);
-            BoxSpan(Mathf.Min(xIn, xOut), Mathf.Max(xIn, xOut), -halfZ + pocketGap, halfZ - pocketGap, top - 0.05f, top + cushionHeight, cushion);
+            RailBlocks(-halfX, halfX, sign > 0 ? halfZ : -outerZ, sign > 0 ? outerZ : -halfZ);  // long sides
+            RailBlocks(sign > 0 ? halfX : -outerX, sign > 0 ? outerX : -halfX, -halfZ, halfZ);  // ends
+            RailBlocks(halfX, outerX, sign > 0 ? halfZ : -outerZ, sign > 0 ? outerZ : -halfZ);  // corners
+            RailBlocks(-outerX, -halfX, sign > 0 ? halfZ : -outerZ, sign > 0 ? outerZ : -halfZ);
         }
 
-        // ---- Wooden frame around the cushions, an apron below it, and a bottom panel ----
-        float frameBottom = top - 0.3f;
-        float frameTop = top + frameHeight;
-        BoxSpan(-outerX, outerX, halfZ + cushionWidth, outerZ, frameBottom, frameTop, wood);       // far long side
-        BoxSpan(-outerX, outerX, -outerZ, -halfZ - cushionWidth, frameBottom, frameTop, wood);     // near long side
-        BoxSpan(halfX + cushionWidth, outerX, -halfZ - cushionWidth, halfZ + cushionWidth, frameBottom, frameTop, wood); // right end
-        BoxSpan(-outerX, -halfX - cushionWidth, -halfZ - cushionWidth, halfZ + cushionWidth, frameBottom, frameTop, wood); // left end
-        float apronBottom = frameBottom - 0.22f;
-        BoxSpan(-outerX + 0.15f, outerX - 0.15f, -outerZ + 0.15f, outerZ - 0.15f, apronBottom, frameBottom, darkWood);  // apron / underside
-
-        // ---- Pockets: black openings with a leather rim, at the corners and the middle of the long sides ----
-        foreach (float px in new[] { -halfX, 0f, halfX })
-            foreach (float pz in new[] { -halfZ, halfZ })
+        // ---- Pocket insides: black walls where the felt drops away, and a black bottom ----
+        foreach (var pocket in pockets)
+        {
+            const int arc = 32;
+            for (int k = 0; k < arc; k++)
             {
-                float r = px == 0f ? pocketRadius * 0.9f : pocketRadius;
-                mb.Ellipsoid(W(px, frameTop + 0.005f, pz), new Vector3(r * 1.25f, 0.02f, r * 1.25f), A(leather), 3, 14);
-                mb.Ellipsoid(W(px, frameTop + 0.03f, pz), new Vector3(r, 0.02f, r), A(black), 3, 14);
-                mb.Ellipsoid(W(px, top + 0.01f, pz), new Vector3(r, 0.02f, r), A(black), 3, 14);
+                float a0 = k * Mathf.PI * 2f / arc, a1 = (k + 1) * Mathf.PI * 2f / arc;
+                Vector2 p0 = pocket.at + new Vector2(Mathf.Cos(a0), Mathf.Sin(a0)) * pocket.radius;
+                Vector2 p1 = pocket.at + new Vector2(Mathf.Cos(a1), Mathf.Sin(a1)) * pocket.radius;
+                Vector2 mid = (p0 + p1) * 0.5f;
+                mb.Tri(W(pocket.at.x, pocketBottom + 0.002f, pocket.at.y), W(p0.x, pocketBottom + 0.002f, p0.y),
+                       W(p1.x, pocketBottom + 0.002f, p1.y), Vector3.up, A(black));
+                if (Mathf.Abs(mid.x) > halfX || Mathf.Abs(mid.y) > halfZ) continue; // rail edges get their walls above
+                Vector3 inward = new Vector3(pocket.at.x - mid.x, 0f, pocket.at.y - mid.y);
+                mb.Quad(W(p0.x, pocketBottom, p0.y), W(p1.x, pocketBottom, p1.y), W(p1.x, top, p1.y), W(p0.x, top, p0.y), inward, A(black));
             }
+        }
+
+        // ---- Apron under the whole table ----
+        mb.Box(W(0f, apronBottom, 0f), new Vector3(outerX * 2f - 0.3f, frameBottom - apronBottom, outerZ * 2f - 0.3f), A(darkWood));
 
         // ---- Diamond sights on the frame (6 on each long side, 3 on each end) ----
         float longRailZ = halfZ + cushionWidth + frameWidth * 0.5f, endRailX = halfX + cushionWidth + frameWidth * 0.5f;
@@ -2967,6 +3091,146 @@ public static class Hole1Builder
         }
     }
 
+    // ================= SECURITY CAMERAS =================
+
+    // Where the cameras go along the hole (0 = tee, 1 = green), alternating sides. One more watches from behind the green.
+    static readonly float[] SecurityCameraSpots = { 0.12f, 0.38f, 0.62f, 0.86f };
+    const float SecurityPoleHeight = 3.2f; // before the style's TreeScale
+
+    /// Camera poles around the hole, all hooked up to one SecurityCameraSystem (one shared on/off timer).
+    /// Each camera shows a red light while the cameras are on. Cheating while they're on gets you caught.
+    static void BuildSecurityCameras(Transform parent, Material mat)
+    {
+        var group = new GameObject("SecurityCameras");
+        group.transform.SetParent(parent, false);
+        group.AddComponent<SecurityCameraSystem>();
+        SecurityCameraKit kit = MakeSecurityCameraKit(mat);
+
+        var spots = new List<(Vector2 position, Vector2 lookAt)>();
+        for (int i = 0; i < SecurityCameraSpots.Length; i++)
+        {
+            float t = SecurityCameraSpots[i];
+            Vector2 c = PathPoint(t);
+            Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.01f)) - PathPoint(Mathf.Max(0f, t - 0.01f))).normalized;
+            Vector2 side = new Vector2(-forward.y, forward.x) * (i % 2 == 0 ? 1f : -1f);
+            spots.Add((c + side * (HalfWidth(t) + 2.5f), c));
+        }
+        Vector2 pastGreen = (PathPoint(1f) - PathPoint(0.97f)).normalized;
+        spots.Add((GreenCenter + pastGreen * (Mathf.Max(GreenRadius.x, GreenRadius.y) + 3f), GreenCenter));
+
+        for (int i = 0; i < spots.Count; i++)
+        {
+            Vector2 lookAt = spots[i].lookAt;
+            Vector2 design = spots[i].position;
+
+            // Step away from the fairway/green until we're off anything playable (bunkers, water, ...)
+            Vector2 away = (design - lookAt).normalized;
+            for (int step = 0; step < 12 && IsPlayArea(ToWorld(design), 1.5f); step++)
+                design += away;
+
+            Vector2 p = ToWorld(design);
+            Vector2 target = ToWorld(lookAt);
+            PlaceSecurityCamera(group.transform, "SecurityCamera" + (i + 1), new Vector3(p.x, GroundHeight(p), p.y),
+                                new Vector3(target.x, GroundHeight(target) + 1f, target.y), kit);
+        }
+    }
+
+    /// The shared meshes and materials for security camera props.
+    class SecurityCameraKit
+    {
+        public Mesh Pole, Head, LightOn, LightOff;
+        public Material Mat, LightMat;
+    }
+
+    static SecurityCameraKit MakeSecurityCameraKit(Material mat)
+    {
+        // Unlit, so the red light glows the same from every side
+        Material lightMat = !S.Retro ? mat : GetShaderMaterial(S.MaterialPrefix + "CameraLight", PixelShader, m =>
+        {
+            m.SetFloat("_PixelSize", BakePixelSize);
+            m.SetColor("_SkyColor", Color.white);
+            m.SetColor("_GroundColor", Color.white);
+            m.SetFloat("_LightStrength", 0f);
+            m.SetFloat("_Dither", 0f);
+            m.SetFloat("_Speckle", 0f);
+            m.SetFloat("_FogStrength", 0f);
+        });
+
+        var poleGray = new Color(0.49f, 0.49f, 0.49f, 0f);  // NES gray
+        var bodyGray = new Color(0.74f, 0.74f, 0.74f, 0f);  // NES light gray
+        var lensBlack = new Color(0f, 0f, 0f, 0f);
+        var lightRed = new Color(0.97f, 0.22f, 0f, 0f);     // NES red-orange
+        var lightDark = new Color(0f, 0f, 0f, 0f);          // black while off
+
+        // Shared meshes. The head's pivot is where it sits on the pole; the camera points along +z.
+        var pole = new MeshBuilder();
+        pole.Cylinder(0.06f, -0.3f, SecurityPoleHeight, 6, poleGray);
+        pole.Box(new Vector3(0f, SecurityPoleHeight - 0.05f, 0f), new Vector3(0.14f, 0.2f, 0.14f), poleGray); // bracket
+        Mesh poleMesh = pole.ToMesh(S.MeshPrefix + "SecurityCameraPole");
+
+        var head = new MeshBuilder();
+        head.Box(new Vector3(0f, -0.15f, 0.1f), new Vector3(0.32f, 0.3f, 0.6f), bodyGray);  // body
+        head.Box(new Vector3(0f, 0.15f, 0.14f), new Vector3(0.4f, 0.04f, 0.72f), poleGray); // sun hood
+        head.Box(new Vector3(0f, -0.11f, 0.42f), new Vector3(0.2f, 0.2f, 0.04f), lensBlack); // lens
+        Mesh headMesh = head.ToMesh(S.MeshPrefix + "SecurityCameraHead");
+
+        // The light sits on top of the hood so it can be seen from any direction
+        Mesh LightMesh(string name, Color col)
+        {
+            var mb = new MeshBuilder();
+            mb.Box(new Vector3(0f, 0.19f, 0.02f), new Vector3(0.24f, 0.22f, 0.24f), col);
+            return mb.ToMesh(S.MeshPrefix + name);
+        }
+        return new SecurityCameraKit
+        {
+            Pole = poleMesh,
+            Head = headMesh,
+            LightOn = LightMesh("SecurityCameraLightOn", lightRed),
+            LightOff = LightMesh("SecurityCameraLightOff", lightDark),
+            Mat = mat,
+            LightMat = lightMat,
+        };
+    }
+
+    /// One camera on a pole standing at groundPosition (world), turned and tilted to look at lookAt (world).
+    static GameObject PlaceSecurityCamera(Transform parent, string name, Vector3 groundPosition, Vector3 lookAt, SecurityCameraKit kit)
+    {
+        var toTarget = new Vector2(lookAt.x - groundPosition.x, lookAt.z - groundPosition.z);
+
+        var cam = new GameObject(name);
+        cam.transform.SetParent(parent, false);
+        cam.transform.position = groundPosition;
+        cam.transform.rotation = Quaternion.Euler(0f, Mathf.Atan2(toTarget.x, toTarget.y) * Mathf.Rad2Deg, 0f);
+        cam.transform.localScale = Vector3.one * S.TreeScale;
+        cam.AddComponent<MeshFilter>().sharedMesh = kit.Pole;
+        cam.AddComponent<MeshRenderer>().sharedMaterial = kit.Mat;
+
+        // Tilt the head down toward the target
+        float headY = groundPosition.y + (SecurityPoleHeight + 0.2f) * S.TreeScale;
+        float pitch = Mathf.Clamp(Mathf.Atan2(headY - lookAt.y, toTarget.magnitude) * Mathf.Rad2Deg, 5f, 40f);
+
+        var headGo = new GameObject("Head");
+        headGo.transform.SetParent(cam.transform, false);
+        headGo.transform.localPosition = new Vector3(0f, SecurityPoleHeight + 0.2f, 0f);
+        headGo.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        headGo.AddComponent<MeshFilter>().sharedMesh = kit.Head;
+        headGo.AddComponent<MeshRenderer>().sharedMaterial = kit.Mat;
+
+        GameObject MakeLight(string lightName, Mesh mesh, Material m)
+        {
+            var go = new GameObject(lightName);
+            go.transform.SetParent(headGo.transform, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = m;
+            return go;
+        }
+        var security = cam.AddComponent<SecurityCamera>();
+        security.lightOn = MakeLight("LightOn", kit.LightOn, kit.LightMat);
+        security.lightOff = MakeLight("LightOff", kit.LightOff, kit.Mat);
+        security.lightOn.SetActive(false);
+        return cam;
+    }
+
     /// Big puffy low-poly clouds in a ring around the course (retro only).
     static void BuildClouds(Transform parent)
     {
@@ -3287,6 +3551,7 @@ public static class Hole1Builder
         public Mesh ToMesh(string name)
         {
             var mesh = new Mesh { name = name };
+            if (verts.Count > 65000) mesh.indexFormat = IndexFormat.UInt32; // big meshes (like the pool table)
             mesh.SetVertices(verts);
             mesh.SetColors(colors);
             mesh.SetUVs(0, new List<Vector2>(new Vector2[verts.Count])); // no checker pattern on props

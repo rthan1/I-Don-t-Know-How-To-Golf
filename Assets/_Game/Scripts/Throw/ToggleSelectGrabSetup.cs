@@ -4,8 +4,8 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Makes controller grab a toggle: press once to grab, press again to drop.
-    /// Skips teleport interactors so locomotion select stays press-and-hold.
+    /// Hold-to-grab: press select to grab, release to drop.
+    /// Skips teleport interactors so locomotion select stays independent.
     /// </summary>
     public static class ToggleSelectGrabSetup
     {
@@ -29,7 +29,7 @@ namespace Golf.Throwing
                 if (interactor.gameObject.name.IndexOf("Teleport", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
 
-                interactor.selectActionTrigger = XRBaseInputInteractor.InputTriggerType.Toggle;
+                interactor.selectActionTrigger = XRBaseInputInteractor.InputTriggerType.StateChange;
             }
 
             _applied = true;

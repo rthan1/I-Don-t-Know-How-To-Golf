@@ -14,14 +14,15 @@ namespace Golf.Throwing
     /// Space (simulator quick-action) is suppressed while throwing.
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class ThrowSequenceController : MonoBehaviour
+    public sealed class ThrowSequenceController : MonoBehaviour, ICatchableCheat
     {
         const float ConfirmCooldownSeconds = 0.25f;
 
         [Header("Throw Tuning")]
         [SerializeField] float minThrowSpeed = 4f;
-        [SerializeField] float maxThrowSpeed = 30f;
-        [SerializeField] float loftDegrees = 18f;
+        [SerializeField] float maxThrowSpeed = 38f;
+        [SerializeField] float minLoftDegrees = 12f;
+        [SerializeField] float maxLoftDegrees = 58f;
         [SerializeField] float maxAccuracyYawDegrees = 28f;
         [SerializeField] float powerMeterSpeed = 1.35f;
         [SerializeField] float accuracyMeterSpeed = 1.6f;
@@ -55,6 +56,7 @@ namespace Golf.Throwing
         public bool IsActive => Phase != ThrowPhase.Idle && Phase != ThrowPhase.Launching;
 
         public Vector3 AimDirection { get; private set; } = Vector3.forward;
+        public float LockedLoftDegrees { get; private set; } = 18f;
         public float LockedPower { get; private set; }
         public float LockedAccuracy { get; private set; }
 
@@ -103,7 +105,7 @@ namespace Golf.Throwing
             SetLocomotionLocked(true);
             SuppressSimulatorSpaceQuickAction(true);
 
-            AimDirection = Flatten(GetAimForward());
+            UpdateAimFromController();
             _nextConfirmTime = Time.time + ConfirmCooldownSeconds;
             EnterAiming();
             return true;
@@ -134,7 +136,7 @@ namespace Golf.Throwing
 
             if (Phase == ThrowPhase.Aiming)
             {
-                AimDirection = Flatten(GetAimForward());
+                UpdateAimFromController();
                 UpdateAimLine();
                 return;
             }
@@ -189,7 +191,7 @@ namespace Golf.Throwing
 
         void LockAimAndEnterPower()
         {
-            AimDirection = Flatten(GetAimForward());
+            UpdateAimFromController();
             UpdateAimLine();
             EnterPower();
         }
@@ -228,9 +230,9 @@ namespace Golf.Throwing
 
             Vector3 origin = GetPlayerThrowOrigin();
             if (forceShow)
-                aimVisualizer.Show(origin, AimDirection, previewSpeed, loftDegrees);
+                aimVisualizer.Show(origin, AimDirection, previewSpeed, LockedLoftDegrees);
             else
-                aimVisualizer.UpdateArc(origin, AimDirection, previewSpeed, loftDegrees);
+                aimVisualizer.UpdateArc(origin, AimDirection, previewSpeed, LockedLoftDegrees);
         }
 
         void SnapBallToPlayer()
@@ -300,7 +302,7 @@ namespace Golf.Throwing
             float powerStrength = Mathf.Clamp01(LockedPower);
             float speed = Mathf.Lerp(minThrowSpeed, maxThrowSpeed, powerStrength);
             float yawError = (LockedAccuracy - 0.5f) * 2f * maxAccuracyYawDegrees;
-            Vector3 lofted = Quaternion.LookRotation(AimDirection) * Quaternion.Euler(-loftDegrees, 0f, 0f) * Vector3.forward;
+            Vector3 lofted = Quaternion.LookRotation(AimDirection) * Quaternion.Euler(-LockedLoftDegrees, 0f, 0f) * Vector3.forward;
             Vector3 velocity = Quaternion.AngleAxis(yawError, Vector3.up) * lofted * speed;
 
             if (_ball != null)
@@ -339,7 +341,18 @@ namespace Golf.Throwing
             }
 
             SuppressSimulatorSpaceQuickAction(false);
-            UnlockLocomotion();
+
+            bool startFlightFollow = !resetToRest && _ball != null;
+            if (startFlightFollow)
+            {
+                // Keep locomotion locked through flight; follower unlocks on landing.
+                _locomotionLocked = false;
+                BallFlightFollower.Begin(_ball);
+            }
+            else
+            {
+                UnlockLocomotion();
+            }
 
             _interactor = null;
             _handAttach = null;
@@ -413,10 +426,74 @@ namespace Golf.Throwing
             PlayerLocomotionLock.ForceUnlock();
         }
 
+        void OnEnable() => SecurityCameraSystem.Register(this);
+
+        void OnDisable() => SecurityCameraSystem.Unregister(this);
+
         void OnDestroy()
         {
             SuppressSimulatorSpaceQuickAction(false);
             UnlockLocomotion();
+        }
+
+        // ---- Security cameras: the cheat throw counts as cheating from grabbing the ball until launch ----
+        public bool IsCheating => IsActive;
+        public string CheatName => "Cheat Throw";
+        public void OnCaught() => CancelThrow();
+
+        /// <summary>Stops the throw without launching. The ball goes back where it last stopped.</summary>
+        public void CancelThrow()
+        {
+            if (Phase == ThrowPhase.Idle)
+                return;
+
+            _launchQueued = false;
+
+            // Always drop the XR grab first. Ending the sequence while still selected
+            // restores trackPosition and the ball sticks to the hand with no throw UI.
+            ForceSelectExit();
+
+            // SelectExit normally reaches EndThrow via HandleReleased. If selection was
+            // already gone or SelectExit no-op'd (wrong interactor), finish locally.
+            if (Phase != ThrowPhase.Idle)
+                EndThrow(restoreBallVisibility: true, resetToRest: true);
+        }
+
+        void ForceSelectExit()
+        {
+            if (_grab == null || !_grab.isSelected)
+                return;
+
+            IXRSelectInteractor interactor = _interactor ?? _grab.firstInteractorSelecting;
+            XRInteractionManager manager = _manager
+                                           ?? _grab.interactionManager
+                                           ?? Object.FindAnyObjectByType<XRInteractionManager>();
+
+            if (manager != null && interactor != null)
+                manager.SelectExit(interactor, _grab);
+
+            // Toggle-select can leave a stuck selection if the interactor ref was stale.
+            if (_grab.isSelected)
+            {
+                _grab.enabled = false;
+                _grab.enabled = true;
+            }
+        }
+
+        void UpdateAimFromController()
+        {
+            Vector3 aim = GetAimForward();
+            AimDirection = Flatten(aim);
+            LockedLoftDegrees = GetLoftFromAim(aim);
+        }
+
+        float GetLoftFromAim(Vector3 aim)
+        {
+            if (aim.sqrMagnitude < 0.0001f)
+                return minLoftDegrees;
+
+            float pitch = Mathf.Asin(Mathf.Clamp(aim.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            return Mathf.Clamp(pitch, minLoftDegrees, maxLoftDegrees);
         }
 
         Vector3 GetAimForward()
