@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
@@ -27,6 +28,15 @@ namespace Golf.Throwing
         float _suppressPickupUntil;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void Bootstrap()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            WireAllBallsInScene();
+        }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => WireAllBallsInScene();
+
         static void WireAllBallsInScene()
         {
             var balls = Object.FindObjectsByType<GolfBall>(FindObjectsInactive.Include, FindObjectsSortMode.None);

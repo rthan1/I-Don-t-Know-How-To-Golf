@@ -2129,6 +2129,7 @@ public static partial class Hole1Builder
         var trigger = cupGo.AddComponent<SphereCollider>();
         trigger.isTrigger = true;
         trigger.radius = 0.07f;
+        cupGo.AddComponent<CupHoleTrigger>();
 
         // Flagstick + flag as one mesh (no collider, so it never blocks the ball)
         const float pinHeight = 2.2f;

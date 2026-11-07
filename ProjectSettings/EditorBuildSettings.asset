@@ -12,6 +12,15 @@ EditorBuildSettings:
     path: Assets/_Game/Scenes/RetroHole1.unity
     guid: 16d85d73224a3a542a82166d9cf01667
   - enabled: 1
+    path: Assets/_Game/Scenes/RetroHole2.unity
+    guid: f826cd475903eaf4185e37887ac3d119
+  - enabled: 1
+    path: Assets/_Game/Scenes/RetroHole3.unity
+    guid: 37c549c0ec2e7d742a1bd58c016eb7fe
+  - enabled: 1
+    path: Assets/_Game/Scenes/RetroHole4.unity
+    guid: 8ecdf051056b8d641961e493f9650545
+  - enabled: 1
     path: Assets/_Game/Scenes/Hole1.unity
     guid: ae9fed59ca1d5d84ab84afb4ef80684a
   m_configObjects:

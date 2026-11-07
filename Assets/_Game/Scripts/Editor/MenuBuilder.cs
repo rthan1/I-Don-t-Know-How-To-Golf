@@ -20,6 +20,14 @@ public static class MenuBuilder
     const string FirstHolePath = "Assets/_Game/Scenes/RetroHole1.unity";
     const string MaterialFolder = "Assets/_Game/Materials";
 
+    static readonly string[] HoleScenePaths =
+    {
+        "Assets/_Game/Scenes/RetroHole1.unity",
+        "Assets/_Game/Scenes/RetroHole2.unity",
+        "Assets/_Game/Scenes/RetroHole3.unity",
+        "Assets/_Game/Scenes/RetroHole4.unity",
+    };
+
     static readonly string[] XROriginPrefabPaths =
     {
         "Assets/_Game/Prefabs/XR Origin (XR Rig).prefab",
@@ -167,17 +175,33 @@ public static class MenuBuilder
         return text;
     }
 
-    /// Menu first (the game starts there), then Retro Hole 1. Anything else already in the build stays after them.
+    /// Menu first, then RetroHole1-4 in order. Other existing build scenes stay after them.
     static void PutInBuild()
     {
         var scenes = new List<EditorBuildSettingsScene>
         {
             new EditorBuildSettingsScene(ScenePath, true),
-            new EditorBuildSettingsScene(FirstHolePath, true),
         };
+        foreach (string holePath in HoleScenePaths)
+            scenes.Add(new EditorBuildSettingsScene(holePath, true));
+
         foreach (EditorBuildSettingsScene existing in EditorBuildSettings.scenes)
-            if (existing.path != ScenePath && existing.path != FirstHolePath)
+        {
+            if (existing.path == ScenePath)
+                continue;
+            bool isHole = false;
+            for (int i = 0; i < HoleScenePaths.Length; i++)
+            {
+                if (existing.path == HoleScenePaths[i])
+                {
+                    isHole = true;
+                    break;
+                }
+            }
+            if (!isHole)
                 scenes.Add(existing);
+        }
+
         EditorBuildSettings.scenes = scenes.ToArray();
     }
 

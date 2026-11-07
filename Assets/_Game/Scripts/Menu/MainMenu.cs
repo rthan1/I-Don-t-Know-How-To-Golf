@@ -14,7 +14,7 @@ using UnityEngine.UI;
 /// </summary>
 public class MainMenu : MonoBehaviour
 {
-    [Tooltip("Scene to load when the player starts. It must be in File > Build Profiles (Golf > Build Menu adds it).")]
+    [Tooltip("Scene to load when the player starts. Defaults to the first hole in HoleProgression.")]
     public string firstHoleScene = "RetroHole1";
 
     [Tooltip("Button(s) that start the game. If none are set, it uses A / trigger on the controllers and Enter / Space on the keyboard.")]
@@ -81,7 +81,11 @@ public class MainMenu : MonoBehaviour
         starting = true;
         if (prompt != null) prompt.text = "LOADING...";
 
+        // New round: clear persisted hole scores (future scorecard reads RoundScoreTracker).
+        RoundScoreTracker.Ensure().ResetRound();
+
+        string scene = string.IsNullOrEmpty(firstHoleScene) ? HoleProgression.FirstHole : firstHoleScene;
         PlayerLocomotionLock.ForceUnlock();
-        SceneManager.LoadScene(firstHoleScene);
+        SceneManager.LoadScene(scene);
     }
 }

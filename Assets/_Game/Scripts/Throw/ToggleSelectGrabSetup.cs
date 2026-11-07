@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 namespace Golf.Throwing
@@ -6,16 +7,21 @@ namespace Golf.Throwing
     /// <summary>
     /// Hold-to-grab: press select to grab, release to drop.
     /// Skips teleport interactors so locomotion select stays independent.
+    /// Re-applies on every scene load for the new XR Origin.
     /// </summary>
     public static class ToggleSelectGrabSetup
     {
         static bool _applied;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        static void ApplyOnLoad()
+        static void Bootstrap()
         {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
             Apply();
         }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => Apply();
 
         public static void Apply()
         {
