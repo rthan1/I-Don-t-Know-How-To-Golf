@@ -27,7 +27,7 @@ using UnityEngine.SceneManagement;
 ///
 /// Coordinates: the player tees off at the world origin facing +Z. The hole is about 65 m long and doglegs right.
 /// </summary>
-public static class Hole1Builder
+public static partial class Hole1Builder
 {
     const string MaterialFolder = "Assets/_Game/Materials";
     const string MeshFolder = "Assets/_Game/Models/Generated";
@@ -3104,7 +3104,46 @@ public static class Hole1Builder
         var group = new GameObject("SecurityCameras");
         group.transform.SetParent(parent, false);
         group.AddComponent<SecurityCameraSystem>();
+        SecurityCameraKit kit = MakeSecurityCameraKit(mat);
 
+        var spots = new List<(Vector2 position, Vector2 lookAt)>();
+        for (int i = 0; i < SecurityCameraSpots.Length; i++)
+        {
+            float t = SecurityCameraSpots[i];
+            Vector2 c = PathPoint(t);
+            Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.01f)) - PathPoint(Mathf.Max(0f, t - 0.01f))).normalized;
+            Vector2 side = new Vector2(-forward.y, forward.x) * (i % 2 == 0 ? 1f : -1f);
+            spots.Add((c + side * (HalfWidth(t) + 2.5f), c));
+        }
+        Vector2 pastGreen = (PathPoint(1f) - PathPoint(0.97f)).normalized;
+        spots.Add((GreenCenter + pastGreen * (Mathf.Max(GreenRadius.x, GreenRadius.y) + 3f), GreenCenter));
+
+        for (int i = 0; i < spots.Count; i++)
+        {
+            Vector2 lookAt = spots[i].lookAt;
+            Vector2 design = spots[i].position;
+
+            // Step away from the fairway/green until we're off anything playable (bunkers, water, ...)
+            Vector2 away = (design - lookAt).normalized;
+            for (int step = 0; step < 12 && IsPlayArea(ToWorld(design), 1.5f); step++)
+                design += away;
+
+            Vector2 p = ToWorld(design);
+            Vector2 target = ToWorld(lookAt);
+            PlaceSecurityCamera(group.transform, "SecurityCamera" + (i + 1), new Vector3(p.x, GroundHeight(p), p.y),
+                                new Vector3(target.x, GroundHeight(target) + 1f, target.y), kit);
+        }
+    }
+
+    /// The shared meshes and materials for security camera props.
+    class SecurityCameraKit
+    {
+        public Mesh Pole, Head, LightOn, LightOff;
+        public Material Mat, LightMat;
+    }
+
+    static SecurityCameraKit MakeSecurityCameraKit(Material mat)
+    {
         // Unlit, so the red light glows the same from every side
         Material lightMat = !S.Retro ? mat : GetShaderMaterial(S.MaterialPrefix + "CameraLight", PixelShader, m =>
         {
@@ -3142,69 +3181,54 @@ public static class Hole1Builder
             mb.Box(new Vector3(0f, 0.19f, 0.02f), new Vector3(0.24f, 0.22f, 0.24f), col);
             return mb.ToMesh(S.MeshPrefix + name);
         }
-        Mesh lightOnMesh = LightMesh("SecurityCameraLightOn", lightRed);
-        Mesh lightOffMesh = LightMesh("SecurityCameraLightOff", lightDark);
-
-        var spots = new List<(Vector2 position, Vector2 lookAt)>();
-        for (int i = 0; i < SecurityCameraSpots.Length; i++)
+        return new SecurityCameraKit
         {
-            float t = SecurityCameraSpots[i];
-            Vector2 c = PathPoint(t);
-            Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.01f)) - PathPoint(Mathf.Max(0f, t - 0.01f))).normalized;
-            Vector2 side = new Vector2(-forward.y, forward.x) * (i % 2 == 0 ? 1f : -1f);
-            spots.Add((c + side * (HalfWidth(t) + 2.5f), c));
-        }
-        Vector2 pastGreen = (PathPoint(1f) - PathPoint(0.97f)).normalized;
-        spots.Add((GreenCenter + pastGreen * (Mathf.Max(GreenRadius.x, GreenRadius.y) + 3f), GreenCenter));
+            Pole = poleMesh,
+            Head = headMesh,
+            LightOn = LightMesh("SecurityCameraLightOn", lightRed),
+            LightOff = LightMesh("SecurityCameraLightOff", lightDark),
+            Mat = mat,
+            LightMat = lightMat,
+        };
+    }
 
-        for (int i = 0; i < spots.Count; i++)
+    /// One camera on a pole standing at groundPosition (world), turned and tilted to look at lookAt (world).
+    static GameObject PlaceSecurityCamera(Transform parent, string name, Vector3 groundPosition, Vector3 lookAt, SecurityCameraKit kit)
+    {
+        var toTarget = new Vector2(lookAt.x - groundPosition.x, lookAt.z - groundPosition.z);
+
+        var cam = new GameObject(name);
+        cam.transform.SetParent(parent, false);
+        cam.transform.position = groundPosition;
+        cam.transform.rotation = Quaternion.Euler(0f, Mathf.Atan2(toTarget.x, toTarget.y) * Mathf.Rad2Deg, 0f);
+        cam.transform.localScale = Vector3.one * S.TreeScale;
+        cam.AddComponent<MeshFilter>().sharedMesh = kit.Pole;
+        cam.AddComponent<MeshRenderer>().sharedMaterial = kit.Mat;
+
+        // Tilt the head down toward the target
+        float headY = groundPosition.y + (SecurityPoleHeight + 0.2f) * S.TreeScale;
+        float pitch = Mathf.Clamp(Mathf.Atan2(headY - lookAt.y, toTarget.magnitude) * Mathf.Rad2Deg, 5f, 40f);
+
+        var headGo = new GameObject("Head");
+        headGo.transform.SetParent(cam.transform, false);
+        headGo.transform.localPosition = new Vector3(0f, SecurityPoleHeight + 0.2f, 0f);
+        headGo.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        headGo.AddComponent<MeshFilter>().sharedMesh = kit.Head;
+        headGo.AddComponent<MeshRenderer>().sharedMaterial = kit.Mat;
+
+        GameObject MakeLight(string lightName, Mesh mesh, Material m)
         {
-            Vector2 lookAt = spots[i].lookAt;
-            Vector2 design = spots[i].position;
-
-            // Step away from the fairway/green until we're off anything playable (bunkers, water, ...)
-            Vector2 away = (design - lookAt).normalized;
-            for (int step = 0; step < 12 && IsPlayArea(ToWorld(design), 1.5f); step++)
-                design += away;
-
-            Vector2 p = ToWorld(design);
-            Vector2 target = ToWorld(lookAt);
-            float ground = GroundHeight(p);
-            Vector2 toTarget = target - p;
-
-            var cam = new GameObject("SecurityCamera" + (i + 1));
-            cam.transform.SetParent(group.transform, false);
-            cam.transform.localPosition = new Vector3(p.x, ground, p.y);
-            cam.transform.localRotation = Quaternion.Euler(0f, Mathf.Atan2(toTarget.x, toTarget.y) * Mathf.Rad2Deg, 0f);
-            cam.transform.localScale = Vector3.one * S.TreeScale;
-            cam.AddComponent<MeshFilter>().sharedMesh = poleMesh;
-            cam.AddComponent<MeshRenderer>().sharedMaterial = mat;
-
-            // Tilt the head down toward the target
-            float headY = ground + (SecurityPoleHeight + 0.2f) * S.TreeScale;
-            float drop = headY - (GroundHeight(target) + 1f);
-            float pitch = Mathf.Clamp(Mathf.Atan2(drop, toTarget.magnitude) * Mathf.Rad2Deg, 5f, 40f);
-
-            var headGo = new GameObject("Head");
-            headGo.transform.SetParent(cam.transform, false);
-            headGo.transform.localPosition = new Vector3(0f, SecurityPoleHeight + 0.2f, 0f);
-            headGo.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
-            headGo.AddComponent<MeshFilter>().sharedMesh = headMesh;
-            headGo.AddComponent<MeshRenderer>().sharedMaterial = mat;
-
-            GameObject MakeLight(string name, Mesh mesh, Material m)
-            {
-                var go = new GameObject(name);
-                go.transform.SetParent(headGo.transform, false);
-                go.AddComponent<MeshFilter>().sharedMesh = mesh;
-                go.AddComponent<MeshRenderer>().sharedMaterial = m;
-                return go;
-            }
-            var security = cam.AddComponent<SecurityCamera>();
-            security.lightOn = MakeLight("LightOn", lightOnMesh, lightMat);
-            security.lightOff = MakeLight("LightOff", lightOffMesh, mat);
-            security.lightOn.SetActive(false);
+            var go = new GameObject(lightName);
+            go.transform.SetParent(headGo.transform, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = m;
+            return go;
         }
+        var security = cam.AddComponent<SecurityCamera>();
+        security.lightOn = MakeLight("LightOn", kit.LightOn, kit.LightMat);
+        security.lightOff = MakeLight("LightOff", kit.LightOff, kit.Mat);
+        security.lightOn.SetActive(false);
+        return cam;
     }
 
     /// Big puffy low-poly clouds in a ring around the course (retro only).
