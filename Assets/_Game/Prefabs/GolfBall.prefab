@@ -332,8 +332,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Golf.Throwing.ThrowSequenceController
   minThrowSpeed: 4
-  maxThrowSpeed: 30
-  loftDegrees: 18
+  maxThrowSpeed: 38
+  minLoftDegrees: 12
+  maxLoftDegrees: 58
   maxAccuracyYawDegrees: 28
   powerMeterSpeed: 1.35
   accuracyMeterSpeed: 1.6

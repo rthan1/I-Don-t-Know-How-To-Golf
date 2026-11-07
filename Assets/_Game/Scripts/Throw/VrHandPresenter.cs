@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Hides controller models and attaches hand sprites to the XR controllers.
+    /// Hides controller models and attaches Quest-oriented hand sprites to the controllers.
     /// </summary>
     public sealed class VrHandPresenter : MonoBehaviour
     {
@@ -51,18 +51,38 @@ namespace Golf.Throwing
 
         void ForceResolveSprites()
         {
-#if UNITY_EDITOR
-            var open = LoadFirstSprite(
-                "Assets/Samples/XR Interaction Toolkit/3.6.1/XR Device Simulator/UI/Hands/Hand_Open.png");
-            var grab = LoadFirstSprite("Assets/_Game/Textures/Hands/Hand_HoldBall.png")
-                       ?? LoadFirstSprite(
-                           "Assets/Samples/XR Interaction Toolkit/3.6.1/XR Device Simulator/UI/Hands/Hand_Grab.png");
+            if (openHandSprite == null)
+                openHandSprite = LoadSprite("Hands/Hand_Open");
+            if (grabHandSprite == null)
+                grabHandSprite = LoadSprite("Hands/Hand_HoldBall") ?? LoadSprite("Hands/Hand_Grab");
 
-            if (open != null)
-                openHandSprite = open;
-            if (grab != null)
-                grabHandSprite = grab;
+#if UNITY_EDITOR
+            if (openHandSprite == null)
+            {
+                openHandSprite = LoadFirstSprite(
+                    "Assets/_Game/Resources/Hands/Hand_Open.png")
+                    ?? LoadFirstSprite(
+                        "Assets/Samples/XR Interaction Toolkit/3.6.1/XR Device Simulator/UI/Hands/Hand_Open.png");
+            }
+
+            if (grabHandSprite == null)
+            {
+                grabHandSprite = LoadFirstSprite("Assets/_Game/Resources/Hands/Hand_HoldBall.png")
+                                 ?? LoadFirstSprite("Assets/_Game/Textures/Hands/Hand_HoldBall.png")
+                                 ?? LoadFirstSprite(
+                                     "Assets/Samples/XR Interaction Toolkit/3.6.1/XR Device Simulator/UI/Hands/Hand_Grab.png");
+            }
 #endif
+        }
+
+        static Sprite LoadSprite(string resourcesPath)
+        {
+            var sprite = Resources.Load<Sprite>(resourcesPath);
+            if (sprite != null)
+                return sprite;
+
+            var all = Resources.LoadAll<Sprite>(resourcesPath);
+            return all != null && all.Length > 0 ? all[0] : null;
         }
 
 #if UNITY_EDITOR
@@ -93,6 +113,26 @@ namespace Golf.Throwing
         {
             if (_right != null)
                 _right.SetGrabbing(grabbing);
+        }
+
+        public void SetHandsVisible(bool visible)
+        {
+            if (!_ready)
+                TrySetupHands();
+
+            if (_left != null)
+            {
+                _left.gameObject.SetActive(visible);
+                if (visible)
+                    _left.SetGrabbing(false);
+            }
+
+            if (_right != null)
+            {
+                _right.gameObject.SetActive(visible);
+                if (visible)
+                    _right.SetGrabbing(false);
+            }
         }
 
         void TrySetupHands()

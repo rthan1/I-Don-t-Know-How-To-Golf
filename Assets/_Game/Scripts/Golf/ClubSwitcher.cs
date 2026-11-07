@@ -55,6 +55,9 @@ public class ClubSwitcher : MonoBehaviour
         {
             clubHead = GetComponentInChildren<ClubHead>();
         }
+
+        if (GetComponent<DesktopClubGrabInput>() == null)
+            gameObject.AddComponent<DesktopClubGrabInput>();
     }
 
     // Start (not Awake) so the ClubHead has finished its own setup first.

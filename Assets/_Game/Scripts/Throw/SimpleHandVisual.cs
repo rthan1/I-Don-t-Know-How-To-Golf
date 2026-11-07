@@ -3,7 +3,9 @@ using UnityEngine;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Hand sprite parented to an XR controller, always facing the camera.
+    /// Hand sprite locked to the XR controller pose (Quest-style), not billboarded.
+    /// Art is palm-facing with fingers "up" in the PNG; we orient that toward the
+    /// player along the controller so Meta Quest 2 first-person view looks natural.
     /// </summary>
     [RequireComponent(typeof(SpriteRenderer))]
     public sealed class SimpleHandVisual : MonoBehaviour
@@ -13,7 +15,13 @@ namespace Golf.Throwing
         [SerializeField] bool isRightHand = true;
         [SerializeField] float openWorldSize = 0.14f;
         [SerializeField] float grabWorldSize = 0.16f;
-        [SerializeField] Vector3 localOffset = new Vector3(0f, -0.02f, 0.05f);
+
+        // Palm faces the headset (sprite looks along -controller.forward), fingers
+        // follow controller up, with a slight tilt so hands read clearly in Quest FP.
+        static readonly Vector3 RightLocalEuler = new Vector3(-25f, 180f, 0f);
+        static readonly Vector3 LeftLocalEuler = new Vector3(-25f, 180f, 0f);
+        static readonly Vector3 RightLocalOffset = new Vector3(0.02f, -0.01f, 0.05f);
+        static readonly Vector3 LeftLocalOffset = new Vector3(-0.02f, -0.01f, 0.05f);
 
         SpriteRenderer _renderer;
         bool _grabbing;
@@ -27,12 +35,9 @@ namespace Golf.Throwing
             grabSprite = grab;
             isRightHand = rightHand;
 
-            float inward = rightHand ? -0.045f : 0.045f;
-            localOffset = new Vector3(inward, -0.025f, 0.06f);
-
             EnsureRenderer();
+            ApplyLocalPose();
             SetGrabbing(false);
-            FaceCamera();
         }
 
         public void SetGrabbing(bool grabbing)
@@ -40,25 +45,19 @@ namespace Golf.Throwing
             _grabbing = grabbing;
             EnsureRenderer();
             ApplySpriteAndScale();
+            ApplyLocalPose();
         }
 
         void LateUpdate()
         {
-            FaceCamera();
+            // Keep local pose stable if something else moves the transform.
+            ApplyLocalPose();
         }
 
-        void FaceCamera()
+        void ApplyLocalPose()
         {
-            Camera cam = Camera.main;
-            if (cam == null)
-                return;
-
-            Vector3 toCam = cam.transform.position - transform.position;
-            if (toCam.sqrMagnitude < 0.0001f)
-                return;
-
-            transform.rotation = Quaternion.LookRotation(-toCam.normalized, Vector3.up);
-            transform.localPosition = localOffset;
+            transform.localRotation = Quaternion.Euler(isRightHand ? RightLocalEuler : LeftLocalEuler);
+            transform.localPosition = isRightHand ? RightLocalOffset : LeftLocalOffset;
         }
 
         void ApplySpriteAndScale()
@@ -70,6 +69,7 @@ namespace Golf.Throwing
             if (sprite != null)
                 _renderer.sprite = sprite;
 
+            // Source art is a right hand (palm toward viewer). Mirror for left.
             _renderer.flipX = !isRightHand;
 
             float worldSize = _grabbing ? grabWorldSize : openWorldSize;
