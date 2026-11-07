@@ -92,8 +92,7 @@ public sealed class ClubStanceLock : MonoBehaviour
     }
 
     void OnGrabbed(SelectEnterEventArgs args)
-    {
-        if (!_stanceLocked)
+    {        if (!_stanceLocked)
         {
             PlayerLocomotionLock.SetLocked(true);
             _stanceLocked = true;
@@ -156,7 +155,6 @@ public sealed class ClubStanceLock : MonoBehaviour
         float dy = ballY - _stanceBallY;
         if (Mathf.Abs(dy) < 0.001f)
             return;
-
         _stanceOrigin.position += Vector3.up * dy;
         _stanceBallY = ballY;
         if (_equip != null)
@@ -164,8 +162,7 @@ public sealed class ClubStanceLock : MonoBehaviour
     }
 
     void ReleaseStanceLock()
-    {
-        _stanceBall = null;
+    {        _stanceBall = null;
         _stanceBallBody = null;
         _stanceOrigin = null;
         SuspendFloorFollow(false);
@@ -266,8 +263,7 @@ public sealed class ClubStanceLock : MonoBehaviour
         _stanceBall = ball;
         _stanceBallBody = ball.GetComponent<Rigidbody>();
         _stanceBallY = _stanceBallBody != null ? _stanceBallBody.position.y : ballPos.y;
-        _stanceOrigin = originRoot;
-    }
+        _stanceOrigin = originRoot;    }
 
     static float StanceDistanceForShaft(float shaftLength)
     {

@@ -63,6 +63,5 @@ public class PoolTableRise : MonoBehaviour
             yield return null;
         }
         transform.localPosition = restPosition;
-        if (swap != null) swap.PutBallsOnSurface(gameObject);
-    }
+        if (swap != null) swap.PutBallsOnSurface(gameObject);    }
 }

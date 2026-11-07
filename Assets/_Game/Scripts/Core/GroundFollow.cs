@@ -62,8 +62,7 @@ public class GroundFollow : MonoBehaviour
         if (float.IsNegativeInfinity(ground)) return;
 
         Vector3 position = transform.position;
-        if (Mathf.Abs(position.y - ground) < 0.002f) return;
-        position.y = ground;
+        if (Mathf.Abs(position.y - ground) < 0.002f) return;        position.y = ground;
         transform.position = position;
         Physics.SyncTransforms(); // let the character controller know we moved it
     }

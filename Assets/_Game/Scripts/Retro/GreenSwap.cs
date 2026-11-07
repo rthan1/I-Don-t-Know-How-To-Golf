@@ -35,8 +35,7 @@ public class GreenSwap : MonoBehaviour
 
     /// <summary>true = flat pool table, false = the terrible green.</summary>
     public void SetPoolTable(bool on)
-    {
-        if (terribleGreen != null) terribleGreen.SetActive(!on);
+    {        if (terribleGreen != null) terribleGreen.SetActive(!on);
         if (poolTable != null) poolTable.SetActive(on);
         if (keepBallsOnTop && Application.isPlaying)
         {
@@ -53,8 +52,7 @@ public class GreenSwap : MonoBehaviour
         // stance lines up with where the ball actually is).
         if (Application.isPlaying)
             foreach (ClubSwitcher club in FindObjectsByType<ClubSwitcher>(FindObjectsSortMode.None))
-                club.SetCueMode(on);
-    }
+                club.SetCueMode(on);    }
 
     /// Drops every resting ball onto whatever is under it now. A ball in the player's hand stays put,
     /// but its saved rest spot still gets fixed, so cancelling the throw doesn't put it back in the air.
@@ -142,10 +140,12 @@ public class GreenSwap : MonoBehaviour
         area.Expand(new Vector3(0f, 4f, 0f));
 
         var surfaceColliders = surface.GetComponentsInChildren<Collider>();
-        foreach (Collider nearby in Physics.OverlapBox(area.center, area.extents))
+        // Solid colliders only: the ball also has a big invisible grab-zone trigger (0.25 m), and using
+        // that as its size would set the ball down floating well above the felt.
+        foreach (Collider nearby in Physics.OverlapBox(area.center, area.extents, Quaternion.identity, ~0, QueryTriggerInteraction.Ignore))
         {
             Rigidbody body = nearby.attachedRigidbody;
-            if (body == null || body.isKinematic) continue;
+            if (body == null || body.isKinematic || nearby.isTrigger) continue;
 
             // Look straight down from above for the highest point of the new surface
             Vector3 from = new Vector3(body.position.x, area.max.y + 1f, body.position.z);
