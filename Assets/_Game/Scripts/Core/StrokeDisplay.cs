@@ -1,35 +1,49 @@
 using TMPro;
 using UnityEngine;
 
-// Shows the StrokeManager's stroke list as small text floating just above the player's left controller.
-// The text always turns to face the player's head, so raising your left hand is enough to read it.
+// Shows the StrokeManager's stroke list on a board floating to the player's left.
+// It follows the player around (and turns when the player rig turns) but not their head,
+// so it stays out of the way until they look over at it.
 // StrokeManager adds this automatically.
 [RequireComponent(typeof(StrokeManager))]
 public class StrokeDisplay : MonoBehaviour
 {
-    [Tooltip("Where the text sits relative to the left controller, in meters.")]
-    public Vector3 offset = new Vector3(0f, 0.08f, 0f);
+    [Tooltip("How far from the player's head the board floats, in meters.")]
+    [Min(0.3f)] public float distance = 0.9f;
+
+    [Tooltip("How far left of the direction the player is facing the board sits, in degrees. Look this way to read it.")]
+    [Range(0f, 120f)] public float angleLeft = 55f;
+
+    [Tooltip("Height of the board compared to the player's eyes, in meters.")]
+    public float heightOffset = -0.1f;
+
+    [Tooltip("How quickly the board catches up when the player moves. Higher = snappier.")]
+    [Min(0.5f)] public float followSpeed = 6f;
 
     [Tooltip("Text size. Raise it if it's hard to read in the headset.")]
-    public float fontSize = 0.12f;
+    public float fontSize = 0.3f;
 
     private StrokeManager manager;
     private TextMeshPro text;
-    private Transform anchor;
     private Camera playerCamera;
+    private Transform rig;
 
     private void Start()
     {
         manager = GetComponent<StrokeManager>();
         playerCamera = Camera.main;
-        anchor = FindLeftController();
+        rig = playerCamera != null ? playerCamera.transform.root : null;
 
         var textObject = new GameObject("StrokeDisplayText");
         text = textObject.AddComponent<TextMeshPro>();
         text.fontSize = fontSize;
-        text.alignment = TextAlignmentOptions.Bottom;
+        text.alignment = TextAlignmentOptions.TopLeft;
         text.textWrappingMode = TextWrappingModes.NoWrap;
-        text.rectTransform.sizeDelta = new Vector2(0.3f, 0.2f);
+        text.rectTransform.sizeDelta = new Vector2(0.5f, 0.5f);
+
+        // Dark outline so the text stays readable against the sky and grass.
+        text.outlineWidth = 0.2f;
+        text.outlineColor = Color.black;
 
         manager.Changed += Refresh;
         Refresh();
@@ -52,24 +66,41 @@ public class StrokeDisplay : MonoBehaviour
     {
         if (text == null) return;
 
-        // Follow the wrist, or sit low in front of the player if there's no left controller.
-        if (anchor != null)
+        if (playerCamera == null)
         {
-            text.transform.position = anchor.TransformPoint(offset);
+            playerCamera = Camera.main;
+            if (playerCamera == null) return;
+            rig = playerCamera.transform.root;
         }
-        else if (playerCamera != null)
+
+        Transform head = playerCamera.transform;
+
+        // "Facing" comes from the player rig, not the head, so looking around doesn't move the board.
+        // The rig gets turned toward the hole each time the player is placed at the ball.
+        Vector3 facing = Vector3.ProjectOnPlane(rig != null ? rig.forward : head.forward, Vector3.up);
+        if (facing.sqrMagnitude < 0.0001f) facing = Vector3.forward;
+        facing.Normalize();
+
+        Vector3 toBoard = Quaternion.AngleAxis(-angleLeft, Vector3.up) * facing;
+        Vector3 target = head.position + toBoard * distance + Vector3.up * heightOffset;
+
+        // Glide after the player. Jump straight there after a teleport (more than 2 m away).
+        Vector3 current = text.transform.position;
+        if ((target - current).sqrMagnitude > 4f)
         {
-            text.transform.position = playerCamera.transform.TransformPoint(new Vector3(0f, -0.3f, 0.7f));
+            text.transform.position = target;
+        }
+        else
+        {
+            float blend = 1f - Mathf.Exp(-followSpeed * Time.deltaTime);
+            text.transform.position = Vector3.Lerp(current, target, blend);
         }
 
         // Turn to face the player.
-        if (playerCamera != null)
+        Vector3 away = text.transform.position - head.position;
+        if (away.sqrMagnitude > 0.0001f)
         {
-            Vector3 away = text.transform.position - playerCamera.transform.position;
-            if (away.sqrMagnitude > 0.0001f)
-            {
-                text.transform.rotation = Quaternion.LookRotation(away, Vector3.up);
-            }
+            text.transform.rotation = Quaternion.LookRotation(away, Vector3.up);
         }
     }
 
@@ -79,19 +110,5 @@ public class StrokeDisplay : MonoBehaviour
         {
             text.text = manager.GetSummaryText();
         }
-    }
-
-    // The starter XR rig names the left hand "Left Controller".
-    private static Transform FindLeftController()
-    {
-        foreach (Transform t in FindObjectsByType<Transform>(FindObjectsSortMode.None))
-        {
-            if (t.name == "Left Controller")
-            {
-                return t;
-            }
-        }
-
-        return null;
     }
 }

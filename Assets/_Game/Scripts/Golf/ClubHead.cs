@@ -23,6 +23,9 @@ public class ClubHead : MonoBehaviour
     [Tooltip("Longest gap (m) between checks along the swing path. Smaller = more precise.")]
     [Min(0.005f)] public float maxSliceDistance = 0.03f;
 
+    [Tooltip("If the head jumps farther than this (m) in one physics step, the player was moved (like being placed next to the ball), not swinging. That step is skipped.")]
+    [Min(0.1f)] public float maxHeadStepDistance = 0.6f;
+
     [Tooltip("Seconds after a hit before the club can hit again.")]
     [Min(0f)] public float hitCooldown = 0.5f;
 
@@ -140,6 +143,16 @@ public class ClubHead : MonoBehaviour
             return;
         }
 
+        // A huge jump in one step means the player got moved, not a swing. Skip it so the jump can't hit the ball.
+        if (Vector3.Distance(headPosition, lastHeadPosition) > maxHeadStepDistance)
+        {
+            lastHeadPosition = headPosition;
+            lastHeadRotation = headRotation;
+            wasTouchingBall = false;
+            CurrentSpeed = 0f;
+            return;
+        }
+
         // Speed for this one physics step, not an average, so it matches the moment of contact.
         Vector3 velocity = (headPosition - lastHeadPosition) / Time.fixedDeltaTime;
         CurrentSpeed = velocity.magnitude;
@@ -243,6 +256,9 @@ public class ClubHead : MonoBehaviour
 
         PlayHaptic();
         onLegitSwing?.Invoke();
+
+        // Follow the ball in flight, then place the player next to it (same as after a throw).
+        Golf.Throwing.BallFlightFollower.Begin(ball);
 
         if (logHits)
         {

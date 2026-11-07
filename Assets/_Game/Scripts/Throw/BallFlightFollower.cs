@@ -14,10 +14,11 @@ namespace Golf.Throwing
         const float FlightBackDistance = 1.0f;
         const float MinFlightSpeed = 0.4f;
         const float MinHeightAboveGround = 0.75f;
-        const float LandStandBack = 0.9f;
+        const float LandStandBack = 0.25f;
+        const float LandStandLeft = 0.4f;
         const float LandCameraRaise = 0.75f;
-        const float ClubNearbyForward = 0.35f;
-        const float ClubNearbyRight = 0.45f;
+        const float ClubNearbyForward = 0.1f;
+        const float ClubNearbyRight = 0.7f;
         const float ClubNearbyHeight = 1.2f;
         const float GroundProbeUp = 3f;
         const float GroundProbeDown = 40f;
@@ -203,7 +204,9 @@ namespace Golf.Throwing
             YawRigToward(towardHole);
 
             Vector3 camOffset = _camera.position - _originRoot.position;
-            Vector3 desiredCamera = ballPos - towardHole * LandStandBack;
+            // Stand a little behind the ball and to its left, so it sits just off your right side, ready to putt.
+            Vector3 rightOfHole = Vector3.Cross(Vector3.up, towardHole).normalized;
+            Vector3 desiredCamera = ballPos - towardHole * LandStandBack - rightOfHole * LandStandLeft;
             Vector3 targetOrigin = _originRoot.position;
             targetOrigin.x = desiredCamera.x - camOffset.x;
             targetOrigin.z = desiredCamera.z - camOffset.z;

@@ -17,7 +17,7 @@ MonoBehaviour:
   shaftLength: 0.95
   faceWidth: 0.075
   faceThickness: 0.015
-  loftDegrees: 30
+  loftDegrees: 42
   liftStrength: 0.3
   speedCurve:
     serializedVersion: 2

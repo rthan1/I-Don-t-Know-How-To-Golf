@@ -593,14 +593,15 @@ public static partial class Hole1Builder
             }
 
             Vector2 tee = ToWorld(TeeCenter);
-            Vector3 playerSpawn = new Vector3(tee.x, teeHeight, tee.y - 1.0f);
+            // Stand a little behind the ball and to its left, so it sits just off the player's right side.
+            Vector3 playerSpawn = new Vector3(tee.x - 0.4f, teeHeight, tee.y + 0.15f);
             Vector3 ballSpawn = new Vector3(tee.x, teeHeight + 0.04f, tee.y + 0.4f);
             Marker("PlayerSpawn", root.transform, playerSpawn);
             Marker("BallSpawn", root.transform, ballSpawn);
             BuildTestBall(root.transform, ballSpawn, ballMat);
 
             // Club floats at chest height just to the player's right, ready to grab.
-            Vector3 clubSpawn = new Vector3(tee.x + 0.35f, teeHeight + 1.2f, tee.y - 0.6f);
+            Vector3 clubSpawn = new Vector3(tee.x + 0.3f, teeHeight + 1.2f, tee.y + 0.25f);
             BuildClub(root.transform, clubSpawn);
 
             EnsurePlayer(scene, playerSpawn);
