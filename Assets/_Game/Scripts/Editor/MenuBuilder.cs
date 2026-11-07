@@ -134,19 +134,98 @@ public static class MenuBuilder
         canvas.renderMode = RenderMode.WorldSpace;
         menuGo.AddComponent<CanvasScaler>().dynamicPixelsPerUnit = 4f;
 
-        // 1600 x 800 canvas units at 0.003 m each = a 4.8 m x 2.4 m sign, 5 m in front of the player
+        // 1600 x 1250 canvas units at 0.003 m each = a 4.8 m x 3.75 m sign, 5 m in front of the player
         var rect = menuGo.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(1600f, 800f);
-        menuGo.transform.position = new Vector3(0f, 2.1f, 5f);
+        rect.sizeDelta = new Vector2(1600f, 1250f);
+        menuGo.transform.position = new Vector3(0f, 2.4f, 5f);
         menuGo.transform.localScale = Vector3.one * 0.003f;
 
-        Text title = AddText(menuGo.transform, "Title", "I DON'T KNOW\nHOW TO GOLF", 170, NesYellow, 0.4f, 1f);
+        AddLogo(menuGo.transform, 0.62f, 1f);
+        Text title = AddText(menuGo.transform, "Title", "I DON'T KNOW\nHOW TO GOLF", 170, NesYellow, 0.26f, 0.64f);
         title.lineSpacing = 0.9f;
-        Text prompt = AddText(menuGo.transform, "Prompt", "PRESS A TO START", 80, NesWhite, 0.05f, 0.3f);
+        Text prompt = AddText(menuGo.transform, "Prompt", "PRESS A TO START", 80, NesWhite, 0.03f, 0.22f);
 
         var menu = menuGo.AddComponent<MainMenu>();
         menu.prompt = prompt;
         menu.firstHoleScene = System.IO.Path.GetFileNameWithoutExtension(FirstHolePath);
+    }
+
+    const string LogoPath = "Assets/_Game/Textures/EJD_Logo.png";
+
+    /// The Epic Jumpin' Dogs logo, across the top of the sign.
+    static void AddLogo(Transform parent, float bottom, float top)
+    {
+        // Make sure the PNG is imported as a UI sprite with its transparency
+        AssetDatabase.ImportAsset(LogoPath);
+        var importer = AssetImporter.GetAtPath(LogoPath) as TextureImporter;
+        if (importer == null)
+        {
+            Debug.LogWarning("Build Menu: " + LogoPath + " not found, skipping the logo.");
+            return;
+        }
+        // Full quality: no compression, no shrinking, smooth filtering
+        if (importer.textureType != TextureImporterType.Sprite
+            || importer.textureCompression != TextureImporterCompression.Uncompressed
+            || importer.maxTextureSize < 4096
+            || !importer.mipmapEnabled)
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.maxTextureSize = 4096;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.filterMode = FilterMode.Trilinear;
+            importer.mipmapEnabled = true; // keeps it from looking grainy when seen from a few meters away
+            importer.SaveAndReimport();
+        }
+        var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(LogoPath);
+
+        // A retro framed card behind the logo: black edge, yellow stripe (same yellow as the title), white middle.
+        // Each layer is a plain rectangle inset inside the last, so the border is crisp and even all the way round.
+        const float Black = 14f, Yellow = 14f, Inner = 6f, Padding = 18f;
+        float bandHeight = ((RectTransform)parent).sizeDelta.y * (top - bottom);
+        float aspect = sprite != null ? sprite.rect.width / sprite.rect.height : 1.4f;
+        float border = Black + Yellow + Inner + Padding;
+        float picHeight = bandHeight - border * 2f;
+
+        var frame = new GameObject("Logo Frame", typeof(RectTransform));
+        frame.transform.SetParent(parent, false);
+        var frameRect = frame.GetComponent<RectTransform>();
+        frameRect.anchorMin = frameRect.anchorMax = new Vector2(0.5f, (bottom + top) * 0.5f);
+        frameRect.sizeDelta = new Vector2(picHeight * aspect + border * 2f, bandHeight);
+        AddPanel(frame.transform, "Black Edge", Color.black, 0f);
+        Transform stripe = AddPanel(frame.transform, "Yellow Stripe", NesYellow, Black);
+        Transform innerEdge = AddPanel(stripe, "Inner Edge", Color.black, Yellow);
+        Transform card = AddPanel(innerEdge, "Card", Color.white, Inner); // pure white, so it matches the picture's own background
+
+        var go = new GameObject("Logo", typeof(RectTransform));
+        go.transform.SetParent(card, false);
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = new Vector2(Padding, Padding);
+        rect.offsetMax = new Vector2(-Padding, -Padding);
+
+        var image = go.AddComponent<Image>();
+        image.sprite = sprite;
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+    }
+
+    /// A solid rectangle filling its parent, minus an even inset on every side.
+    static Transform AddPanel(Transform parent, string name, Color color, float inset)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = new Vector2(inset, inset);
+        rect.offsetMax = new Vector2(-inset, -inset);
+        var image = go.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return go.transform;
     }
 
     static Text AddText(Transform parent, string name, string content, int size, Color color, float bottom, float top)
