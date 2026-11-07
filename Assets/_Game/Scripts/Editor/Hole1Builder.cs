@@ -582,7 +582,7 @@ public static class Hole1Builder
 
             Vector2 tee = ToWorld(TeeCenter);
             Vector3 playerSpawn = new Vector3(tee.x, teeHeight, tee.y - 1.0f);
-            Vector3 ballSpawn = new Vector3(tee.x, teeHeight + 0.03f, tee.y + 0.4f);
+            Vector3 ballSpawn = new Vector3(tee.x, teeHeight + 0.04f, tee.y + 0.4f);
             Marker("PlayerSpawn", root.transform, playerSpawn);
             Marker("BallSpawn", root.transform, ballSpawn);
             BuildTestBall(root.transform, ballSpawn, ballMat);
@@ -2441,21 +2441,19 @@ public static class Hole1Builder
         return false;
     }
 
-    /// Placeholder ball for testing the course. Replace with the real Ball prefab later.
+    /// Places the real GolfBall prefab at the ball spawn.
     static void BuildTestBall(Transform parent, Vector3 position, Material mat)
     {
-        GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        ball.name = "TestBall (placeholder)";
-        ball.transform.SetParent(parent, false);
-        ball.transform.localPosition = position;
-        ball.transform.localScale = Vector3.one * 0.043f;
-        ball.GetComponent<Renderer>().sharedMaterial = mat;
+        const string BallPrefabPath = "Assets/_Game/Prefabs/GolfBall.prefab";
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(BallPrefabPath);
+        if (prefab == null)
+        {
+            Debug.LogWarning("Build Hole 1: couldn't find " + BallPrefabPath + ", skipping the ball.");
+            return;
+        }
 
-        var rb = ball.AddComponent<Rigidbody>();
-        rb.mass = 0.046f;
-        rb.linearDamping = 0.1f;
-        rb.angularDamping = 0.6f;
-        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        GameObject ball = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+        ball.transform.localPosition = position;
     }
 
     static void Marker(string name, Transform parent, Vector3 position)

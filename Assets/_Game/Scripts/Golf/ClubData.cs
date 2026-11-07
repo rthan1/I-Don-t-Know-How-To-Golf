@@ -1,0 +1,60 @@
+using UnityEngine;
+
+// One of these assets exists per club (Driver, Iron, Putter).
+// It only holds numbers and references. The ClubHead script reads them when a hit happens.
+// Create one in the Project window: right-click > Create > Golf > Club Data.
+[CreateAssetMenu(fileName = "NewClub", menuName = "Golf/Club Data")]
+public class ClubData : ScriptableObject
+{
+    [Header("Identity")]
+    [Tooltip("Name shown on the debug readout, e.g. Driver.")]
+    public string clubName = "New Club";
+
+    [Tooltip("The 3D model shown in the player's hand for this club.")]
+    public GameObject visualPrefab;
+
+    [Header("Shape")]
+    [Tooltip("Distance from the grip to the club head, in meters.")]
+    [Min(0.1f)] public float shaftLength = 1.0f;
+
+    [Tooltip("Radius of the club head's hit trigger, in meters. Bigger = more forgiving.")]
+    [Min(0.01f)] public float headRadius = 0.06f;
+
+    [Header("Launch")]
+    [Tooltip("Launch angle above horizontal, in degrees. Low for driver, high for iron, near 0 for putter.")]
+    [Range(0f, 60f)] public float loftDegrees = 10f;
+
+    [Tooltip("Maps swing speed (m/s, horizontal axis) to ball launch speed (m/s, vertical axis).")]
+    public AnimationCurve speedCurve = new AnimationCurve(
+        new Keyframe(0f, 0f),
+        new Keyframe(15f, 15f));
+
+    [Tooltip("Swings slower than this (m/s) don't count as a hit.")]
+    [Min(0f)] public float minSwingSpeed = 2f;
+
+    [Tooltip("Ball speed never goes above this (m/s), no matter how hard the swing.")]
+    [Min(0f)] public float maxBallSpeed = 18f;
+
+    [Tooltip("How much the club face direction bends the shot. 0 = follow the swing path only, 1 = follow the face only.")]
+    [Range(0f, 1f)] public float faceAimInfluence = 0f;
+
+    [Header("Feel")]
+    [Tooltip("Controller vibration strength on hit, 0 to 1.")]
+    [Range(0f, 1f)] public float hapticAmplitude = 0.7f;
+
+    [Tooltip("Controller vibration length on hit, in seconds.")]
+    [Min(0f)] public float hapticDuration = 0.1f;
+
+    // Turns a measured swing speed into a ball launch speed.
+    // Returns 0 if the swing was too slow to count.
+    public float GetBallSpeed(float swingSpeed)
+    {
+        if (swingSpeed < minSwingSpeed)
+        {
+            return 0f;
+        }
+
+        float ballSpeed = speedCurve.Evaluate(swingSpeed);
+        return Mathf.Clamp(ballSpeed, 0f, maxBallSpeed);
+    }
+}
