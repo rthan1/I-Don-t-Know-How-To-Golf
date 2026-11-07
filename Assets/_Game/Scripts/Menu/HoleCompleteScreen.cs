@@ -49,6 +49,7 @@ public sealed class HoleCompleteScreen : MonoBehaviour
     float _shownAt;
     string _nextScene = HoleProgression.MenuScene;
     bool _wired;
+    StrokeManager _wiredTo;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap()
@@ -62,12 +63,36 @@ public sealed class HoleCompleteScreen : MonoBehaviour
 
     static void EnsureInHoleScenes()
     {
-        if (FindAnyObjectByType<GolfBall>() == null)
-            return;
-        if (FindAnyObjectByType<HoleCompleteScreen>() != null)
+        bool hasBall = FindAnyObjectByType<GolfBall>() != null;
+        Scene active = SceneManager.GetActiveScene();
+
+        // A leftover screen (often stuck in DontDestroyOnLoad after LoadScene from Continue)
+        // keeps _loading/_visible and then silently ignores the next hole's Show().
+        HoleCompleteScreen aliveInScene = null;
+        var existing = FindObjectsByType<HoleCompleteScreen>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            HoleCompleteScreen screen = existing[i];
+            if (screen == null)
+                continue;
+
+            bool inActiveScene = active.IsValid() && screen.gameObject.scene == active;
+            if (hasBall && inActiveScene && aliveInScene == null)
+            {
+                aliveInScene = screen;
+                screen.ResetGateState();
+                continue;
+            }
+
+            Destroy(screen.gameObject);
+        }
+
+        if (!hasBall || aliveInScene != null)
             return;
 
         var go = new GameObject("HoleCompleteScreen");
+        if (active.IsValid())
+            SceneManager.MoveGameObjectToScene(go, active);
         go.AddComponent<HoleCompleteScreen>();
     }
 
@@ -83,13 +108,15 @@ public sealed class HoleCompleteScreen : MonoBehaviour
         _continueButton.AddBinding("<Gamepad>/start");
 
         BuildUi();
-        SetVisible(false);
+        ResetGateState();
     }
 
     void OnEnable()
     {
         _continueButton.performed += OnContinuePressed;
         _continueButton.Enable();
+        // Never keep a stuck Continue flag across enables; do not hide an active scorecard here.
+        _loading = false;
         TryWireStrokeManager();
     }
 
@@ -104,8 +131,7 @@ public sealed class HoleCompleteScreen : MonoBehaviour
 
     void Update()
     {
-        if (!_wired)
-            TryWireStrokeManager();
+        TryWireStrokeManager();
 
         if (!_visible || _prompt == null)
             return;
@@ -113,21 +139,39 @@ public sealed class HoleCompleteScreen : MonoBehaviour
         _prompt.enabled = _loading || Mathf.Repeat((Time.unscaledTime - _shownAt) * blinkRate, 1f) < 0.65f;
     }
 
+    void ResetGateState()
+    {
+        _loading = false;
+        if (_visible)
+            SetVisible(false);
+        else
+            _visible = false;
+    }
+
     void TryWireStrokeManager()
     {
-        if (_wired || StrokeManager.Instance == null)
+        StrokeManager manager = StrokeManager.Instance;
+        if (manager == null)
             return;
 
-        StrokeManager.Instance.onHoleFinished.AddListener(Show);
+        // Re-bind if the per-hole StrokeManager was recreated (scene change / domain reload off).
+        if (_wired && _wiredTo == manager)
+            return;
+
+        if (_wiredTo != null)
+            _wiredTo.HoleFinishedEvent -= Show;
+
+        manager.HoleFinishedEvent += Show;
+        _wiredTo = manager;
         _wired = true;
     }
 
     void UnwireStrokeManager()
     {
-        if (!_wired || StrokeManager.Instance == null)
-            return;
+        if (_wiredTo != null)
+            _wiredTo.HoleFinishedEvent -= Show;
 
-        StrokeManager.Instance.onHoleFinished.RemoveListener(Show);
+        _wiredTo = null;
         _wired = false;
     }
 
@@ -143,8 +187,12 @@ public sealed class HoleCompleteScreen : MonoBehaviour
 
     public void Show()
     {
-        if (_visible || _loading)
+        // Only skip if this screen is already up. Never block on a stale _loading
+        // flag left behind by a previous hole's Continue/scene load.
+        if (_visible)
             return;
+
+        _loading = false;
 
         StrokeManager manager = StrokeManager.Instance;
         RoundScoreTracker scores = RoundScoreTracker.Ensure();
@@ -177,7 +225,6 @@ public sealed class HoleCompleteScreen : MonoBehaviour
             _prompt.text = hasNext ? "PRESS A TO CONTINUE" : "PRESS A TO FINISH";
 
         _shownAt = Time.unscaledTime;
-        _loading = false;
         SetVisible(true);
         PlayerLocomotionLock.SetLocked(true);
     }
@@ -192,7 +239,12 @@ public sealed class HoleCompleteScreen : MonoBehaviour
             _prompt.text = "LOADING...";
 
         PlayerLocomotionLock.ForceUnlock();
-        SceneManager.LoadScene(_nextScene);
+        UnwireStrokeManager();
+
+        string next = _nextScene;
+        // Destroy before load so this instance cannot linger in DDOL with _loading stuck true.
+        Destroy(gameObject);
+        SceneManager.LoadScene(next);
     }
 
     void SetVisible(bool visible)

@@ -2129,7 +2129,8 @@ public static partial class Hole1Builder
         cupGo.transform.localPosition = new Vector3(cup.x, cupBottom + 0.05f, cup.y);
         var trigger = cupGo.AddComponent<SphereCollider>();
         trigger.isTrigger = true;
-        trigger.radius = 0.07f;
+        // Match/exceed mesh cup radius (0.1) so a ball resting on the cup wall still counts.
+        trigger.radius = 0.12f;
         cupGo.AddComponent<CupHoleTrigger>();
 
         // Flagstick + flag as one mesh (no collider, so it never blocks the ball)

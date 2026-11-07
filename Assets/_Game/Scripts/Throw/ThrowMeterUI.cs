@@ -4,15 +4,14 @@ using UnityEngine.UI;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Tall meter bar. During power/accuracy it sits at the left hand so the
-    /// right-hand hold sprite does not cover it; aim prompts stay head-centered.
+    /// Tall meter bar, locked to the headset so it stays in view as you look around.
+    /// Power/accuracy sit slightly left of center so the right-hand hold sprite does not cover them.
     /// Power: top green (strong) → yellow → orange → red bottom (weak).
     /// Accuracy: center green (best) → yellow → orange → red edges (worst).
     /// </summary>
     public sealed class ThrowMeterUI : MonoBehaviour
     {
         [SerializeField] Vector3 headLocalOffset = new Vector3(-0.28f, -0.02f, 0.85f);
-        [SerializeField] Vector3 leftHandLocalOffset = new Vector3(0f, 0.06f, 0.1f);
         [SerializeField] Vector2 canvasSize = new Vector2(360f, 1040f);
         [SerializeField] float canvasScale = 0.00175f;
 
@@ -49,7 +48,6 @@ namespace Golf.Throwing
         static Sprite s_WhiteSprite;
 
         Transform _follow;
-        Transform _leftHandFollow;
         Text _title;
         Text _prompt;
         Image _marker;
@@ -58,11 +56,11 @@ namespace Golf.Throwing
         GameObject _root;
         GameObject _bar;
         MeterDisplayMode _mode;
-        bool _anchorToLeftHand;
 
         public void BindFollowTarget(Transform follow) => _follow = follow;
 
-        public void BindLeftHandFollow(Transform leftHand) => _leftHandFollow = leftHand;
+        // Kept so older callers still compile; meter is head-locked now.
+        public void BindLeftHandFollow(Transform leftHand) { }
 
         public void Show(string title, string prompt, MeterDisplayMode mode)
         {
@@ -75,7 +73,7 @@ namespace Golf.Throwing
             bool showBar = mode != MeterDisplayMode.Hidden;
             _bar.SetActive(showBar);
             _marker.gameObject.SetActive(showBar);
-            _anchorToLeftHand = showBar && _leftHandFollow != null;
+            // Bar modes: left of gaze. Aim prompt: centered a bit lower.
             headLocalOffset = showBar
                 ? new Vector3(-0.28f, -0.02f, 0.85f)
                 : new Vector3(0f, -0.12f, 0.75f);
@@ -103,23 +101,10 @@ namespace Golf.Throwing
 
         void LateUpdate()
         {
-            if (_root == null || !_root.activeSelf)
+            if (_root == null || !_root.activeSelf || _follow == null)
                 return;
 
             Transform t = _root.transform;
-            if (_anchorToLeftHand && _leftHandFollow != null)
-            {
-                t.position = _leftHandFollow.TransformPoint(leftHandLocalOffset);
-                Vector3 faceFrom = _follow != null ? _follow.position : t.position - _leftHandFollow.forward;
-                Vector3 away = t.position - faceFrom;
-                if (away.sqrMagnitude > 0.0001f)
-                    t.rotation = Quaternion.LookRotation(away, Vector3.up);
-                return;
-            }
-
-            if (_follow == null)
-                return;
-
             t.position = _follow.TransformPoint(headLocalOffset);
             t.rotation = Quaternion.LookRotation(t.position - _follow.position, Vector3.up);
         }

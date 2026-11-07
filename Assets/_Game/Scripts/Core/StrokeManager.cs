@@ -33,6 +33,9 @@ public class StrokeManager : MonoBehaviour
     // Fires every time a stroke is added (for the wrist display).
     public event Action Changed;
 
+    // C# event for code listeners (survives scene flow more reliably than UnityEvent targets).
+    public event Action HoleFinishedEvent;
+
     public string HoleName { get; private set; }
     public int Par => par > 0 ? par : ParForScene(HoleName);
     public int StrokeCount => strokes.Count;
@@ -55,10 +58,39 @@ public class StrokeManager : MonoBehaviour
 
     private static void CreateIfNeeded()
     {
-        if (FindAnyObjectByType<StrokeManager>() != null) return;
-        if (FindAnyObjectByType<GolfBall>() == null) return;
+        if (FindAnyObjectByType<GolfBall>() == null)
+            return;
 
-        new GameObject("StrokeManager").AddComponent<StrokeManager>();
+        Scene active = SceneManager.GetActiveScene();
+        StrokeManager aliveInScene = null;
+        var existing = FindObjectsByType<StrokeManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            StrokeManager manager = existing[i];
+            if (manager == null)
+                continue;
+
+            bool inActiveScene = active.IsValid() && manager.gameObject.scene == active;
+            if (inActiveScene && aliveInScene == null)
+            {
+                aliveInScene = manager;
+                continue;
+            }
+
+            // Drop leftovers (e.g. finished managers that landed outside the active scene).
+            Destroy(manager.gameObject);
+        }
+
+        if (aliveInScene != null)
+        {
+            Instance = aliveInScene;
+            return;
+        }
+
+        var go = new GameObject("StrokeManager");
+        if (active.IsValid())
+            SceneManager.MoveGameObjectToScene(go, active);
+        go.AddComponent<StrokeManager>();
     }
 
     private void Awake()
@@ -139,6 +171,7 @@ public class StrokeManager : MonoBehaviour
         RoundScoreTracker.Ensure().RecordFrom(this);
 
         onHoleFinished?.Invoke();
+        HoleFinishedEvent?.Invoke();
         Changed?.Invoke();
     }
 

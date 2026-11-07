@@ -235,11 +235,13 @@ public sealed class ClubStanceLock : MonoBehaviour
 
         Vector3 left = -right;
         Vector3 desiredCamera;
+        Vector3 lookDir;
         if (club != null && club.isCue)
         {
             // Pool cue: stand behind the ball looking down the line to the hole, bent over the table.
             desiredCamera = ballPos - towardHole * CueStanceBehind;
             desiredCamera.y = ballPos.y + CueEyeHeight;
+            lookDir = towardHole;
         }
         else
         {
@@ -247,9 +249,11 @@ public sealed class ClubStanceLock : MonoBehaviour
             // Target headset height above the ball so a gripped club can reach turf.
             // (Origin often sits on the ground via GroundFollow, so "drop from origin height" was a no-op.)
             desiredCamera.y = ballPos.y + addressEyeHeight;
+            // Face the ball (not the cup) so the club head starts in view for an easier hit.
+            lookDir = Flatten(ballPos - desiredCamera);
         }
 
-        YawRigToward(originRoot, camera, towardHole);
+        YawRigToward(originRoot, camera, lookDir);
 
         Vector3 camOffset = camera.position - originRoot.position;
         Vector3 targetOrigin = originRoot.position;
@@ -263,7 +267,8 @@ public sealed class ClubStanceLock : MonoBehaviour
         _stanceBall = ball;
         _stanceBallBody = ball.GetComponent<Rigidbody>();
         _stanceBallY = _stanceBallBody != null ? _stanceBallBody.position.y : ballPos.y;
-        _stanceOrigin = originRoot;    }
+        _stanceOrigin = originRoot;
+    }
 
     static float StanceDistanceForShaft(float shaftLength)
     {
@@ -275,9 +280,10 @@ public sealed class ClubStanceLock : MonoBehaviour
 
     static float AddressEyeHeightForShaft(float shaftLength)
     {
-        // Driver stays near the tuned height; iron/putter crouch more so the head reaches turf.
-        // Driver ~1.03, Iron ~0.91, Putter ~0.84.
-        return Mathf.Clamp(0.2f + shaftLength * 0.75f, 0.75f, 1.1f);
+        // Eyes above the ball at address. Kept taller so a natural arm hang puts the
+        // club head near the ball instead of forcing an upward bend to reach it.
+        // Driver ~1.35, Iron ~1.24, Putter ~1.16.
+        return Mathf.Clamp(0.5f + shaftLength * 0.75f, 1.05f, 1.45f);
     }
 
     static void YawRigToward(Transform originRoot, Transform camera, Vector3 worldForward)

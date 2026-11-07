@@ -3,27 +3,29 @@ using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 /// <summary>
-/// Pool table shot. While the club is a pool cue and held, the aim is locked straight at the cup and a
-/// power meter (the same one the cheat throw uses) runs. Press A (or F on the keyboard) to take the shot.
-///
-/// The meter's green band is "just right": stopping the marker in the middle of the green rolls the ball
-/// to the cup. Lower is short, higher is long. ClubSwitcher adds this to the club automatically.
+/// Pool table shot. While the club is a pool cue and held, aim is locked at the cup and a
+/// meter runs — same accuracy-style bar as the cheat throw (green in the middle).
+/// Press A (or F) when the marker is in the green: that power rolls the ball to the cup.
+/// Lower = short, higher = long. ClubSwitcher adds this automatically.
 /// </summary>
 [DisallowMultipleComponent]
 [RequireComponent(typeof(ClubSwitcher))]
 public sealed class PoolCueShot : MonoBehaviour
 {
-    [Tooltip("How fast the power marker moves up and down.")]
-    [Min(0.1f)] public float meterSpeed = 1.2f;
+    [Tooltip("How fast the marker moves up and down.")]
+    [Min(0.1f)] public float meterSpeed = 1.6f;
 
-    [Tooltip("Where on the meter (0 bottom, 1 top) the perfect power sits. 0.875 = middle of the green band.")]
-    [Range(0.3f, 1f)] public float perfectPoint = 0.875f;
+    [Tooltip("Meter value that is perfect power (accuracy green center is 0.5).")]
+    [Range(0.4f, 0.6f)] public float perfectPoint = 0.5f;
 
-    [Tooltip("Aim for the ball to stop this far past the middle of the cup, so it doesn't die on the lip.")]
-    [Min(0f)] public float stopPastCup = 0.05f;
+    [Tooltip("Aim for the ball to stop this far past the cup center so it drops in.")]
+    [Min(0f)] public float stopPastCup = 0.08f;
 
-    const float StartDelay = 0.4f;      // let the stance/teleport finish before the meter starts
-    const float ConfirmCooldown = 0.3f; // so the grab press can't also take the shot
+    [Tooltip("Extra speed on top of the physics estimate so a green hit still reaches on real felt.")]
+    [Min(1f)] public float perfectSpeedBoost = 1.12f;
+
+    const float StartDelay = 0.4f;
+    const float ConfirmCooldown = 0.3f;
 
     ClubSwitcher _switcher;
     XRGrabInteractable _grab;
@@ -79,17 +81,18 @@ public sealed class PoolCueShot : MonoBehaviour
     void StartMeter()
     {
         if (_meterUI == null)
-        {
             _meterUI = gameObject.AddComponent<ThrowMeterUI>();
-            if (Camera.main != null) _meterUI.BindFollowTarget(Camera.main.transform);
-        }
 
+        if (Camera.main != null)
+            _meterUI.BindFollowTarget(Camera.main.transform);
+
+        // Same bar as throw accuracy: green band in the middle.
         _meter.Start(meterSpeed, 0f);
-        _meterUI.Show("POWER", "Aimed at the cup. Press A in the green", ThrowMeterUI.MeterDisplayMode.PowerFill);
+        _meterUI.Show("POWER", "Press A once in the green", ThrowMeterUI.MeterDisplayMode.AccuracyNeedle);
         _meterUI.SetValue(_meter.Value);
         _running = true;
         _confirmReadyAt = Time.time + ConfirmCooldown;
-        _aHeldLastFrame = true; // ignore an A that's already down
+        _aHeldLastFrame = true;
     }
 
     void StopMeter()
@@ -102,33 +105,35 @@ public sealed class PoolCueShot : MonoBehaviour
 
     void Shoot(GolfBall ball)
     {
-        float power = _meter.Stop();
+        float meterValue = _meter.Stop();
         StopMeter();
         if (_head == null) _head = GetComponentInChildren<ClubHead>();
         if (_head == null) return;
 
-        // Locked aim: straight from the ball to the cup, flat along the felt.
         Vector3 ballPos = ball.transform.position;
-        Transform cup = FindActiveNamed("CupTrigger");
-        Vector3 toCup = cup != null ? cup.position - ballPos : (Camera.main != null ? Camera.main.transform.forward : Vector3.forward);
+        Transform cup = FindNearestActiveCup(ballPos);
+        Vector3 toCup = cup != null
+            ? cup.position - ballPos
+            : (Camera.main != null ? Camera.main.transform.forward : Vector3.forward);
         toCup.y = 0f;
+
         float distance = cup != null ? toCup.magnitude : 3f;
         Vector3 direction = toCup.sqrMagnitude > 0.0001f ? toCup.normalized : Vector3.forward;
 
-        // Perfect power rolls it to just past the cup; the meter scales that (green middle = perfect).
-        float perfectSpeed = SpeedToRoll(ball, distance + stopPastCup);
-        float speed = perfectSpeed * (power / perfectPoint);
-        speed = Mathf.Clamp(speed, 0.2f, perfectSpeed * 1.6f + 0.5f);
+        // Green center (perfectPoint) → speed that rolls to / just past the cup.
+        float perfectSpeed = SpeedToRoll(ball, distance + stopPastCup) * perfectSpeedBoost;
+        float scale = meterValue / Mathf.Max(0.05f, perfectPoint);
+        float speed = Mathf.Clamp(perfectSpeed * scale, 0.15f, perfectSpeed * 2f);
 
         _head.CueShot(ball, direction * speed);
     }
 
-    // Launch speed that makes the ball roll `distance` meters on the felt before stopping, using the
-    // ball's own slowdown settings (ground damping + rolling resistance), stepped like the physics engine.
+    // Launch speed that makes the ball roll `distance` meters before stopping, using the
+    // ball's ground damping + rolling resistance (same order as GolfBall.FixedUpdate).
     static float SpeedToRoll(GolfBall ball, float distance)
     {
-        float lo = 0f, hi = 30f;
-        for (int i = 0; i < 30; i++)
+        float lo = 0f, hi = 40f;
+        for (int i = 0; i < 32; i++)
         {
             float mid = (lo + hi) * 0.5f;
             if (RollDistance(ball, mid) < distance) lo = mid;
@@ -140,11 +145,16 @@ public sealed class PoolCueShot : MonoBehaviour
     static float RollDistance(GolfBall ball, float speed)
     {
         float dt = Time.fixedDeltaTime > 0f ? Time.fixedDeltaTime : 0.02f;
+        float damp = Mathf.Max(0f, ball.groundDamping);
+        float resist = Mathf.Max(0f, ball.rollingResistance);
+        float stop = Mathf.Max(0.01f, ball.restSpeed);
+
         float v = speed, x = 0f;
-        for (int step = 0; step < 5000 && v > ball.restSpeed; step++)
+        for (int step = 0; step < 8000 && v > stop; step++)
         {
-            v = Mathf.Max(0f, v - ball.rollingResistance * dt);
-            v /= 1f + ball.groundDamping * dt; // how Unity applies linear damping
+            // Match GolfBall: rolling resistance first, then Unity linearDamping.
+            v = Mathf.Max(0f, v - resist * dt);
+            v /= 1f + damp * dt;
             x += v * dt;
         }
         return x;
@@ -152,7 +162,6 @@ public sealed class PoolCueShot : MonoBehaviour
 
     bool WasConfirmPressed()
     {
-        // Quest A = right-hand primary button (same as the cheat throw). F for desktop/simulator.
         bool aHeld = false;
         var right = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.RightHand);
         if (right.isValid)
@@ -173,10 +182,25 @@ public sealed class PoolCueShot : MonoBehaviour
         return null;
     }
 
-    static Transform FindActiveNamed(string exactName)
+    static Transform FindNearestActiveCup(Vector3 from)
     {
-        foreach (Transform t in FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
-            if (t.name == exactName) return t;
-        return null;
+        Transform best = null;
+        float bestDist = float.MaxValue;
+        var all = FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < all.Length; i++)
+        {
+            Transform t = all[i];
+            if (t == null || t.name != "CupTrigger")
+                continue;
+
+            float d = (t.position - from).sqrMagnitude;
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = t;
+            }
+        }
+
+        return best;
     }
 }
