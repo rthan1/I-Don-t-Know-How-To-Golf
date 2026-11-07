@@ -48,6 +48,15 @@ public class SecurityCameraSystem : MonoBehaviour
     [Tooltip("Volume of the caught sound, 0 to 1.")]
     [Range(0f, 1f)] public float caughtVolume = 1f;
 
+    [Tooltip("Played when the cameras switch on. Leave empty to use the default (Resources/Audio/Camera_On).")]
+    public AudioClip camerasOnSound;
+
+    [Tooltip("Played when the cameras switch off. Leave empty to use the default (Resources/Audio/Camera_Off).")]
+    public AudioClip camerasOffSound;
+
+    [Tooltip("Volume of the camera on/off sounds, 0 to 1.")]
+    [Range(0f, 1f)] public float switchVolume = 0.8f;
+
     [Header("Events")]
     [Tooltip("Fires when a cheat gets caught on camera. The cheat has already been undone. Hook the stroke penalty, siren, etc. up here.")]
     public UnityEvent onCaught;
@@ -76,7 +85,7 @@ public class SecurityCameraSystem : MonoBehaviour
     static readonly List<ICatchableCheat> cheats = new List<ICatchableCheat>();
 
     float phaseTime;
-    AudioSource caughtAudio;
+    AudioSource audioSource;
 
     // Clears leftovers from the last Play session (in case domain reload is turned off)
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -94,6 +103,20 @@ public class SecurityCameraSystem : MonoBehaviour
     }
 
     public static void Unregister(ICatchableCheat cheat) => cheats.Remove(cheat);
+
+    /// <summary>Is any registered cheat happening right now? (Works on holes without cameras too.)</summary>
+    public static bool AnyCheating
+    {
+        get
+        {
+            foreach (ICatchableCheat cheat in cheats)
+            {
+                if (cheat == null || (cheat is UnityEngine.Object obj && obj == null)) continue;
+                if (cheat.IsCheating) return true;
+            }
+            return false;
+        }
+    }
 
     void OnEnable()
     {
@@ -143,27 +166,46 @@ public class SecurityCameraSystem : MonoBehaviour
         CheatCaught?.Invoke(cheat);
     }
 
-    // 2D (not from a camera's position), so the player hears it clearly wherever they are.
     void PlayCaughtSound()
     {
-        if (caughtSound == null)
-            caughtSound = Resources.Load<AudioClip>("Audio/Caught_Hey");
-        if (caughtSound == null) return;
+        if (caughtSound == null) caughtSound = Resources.Load<AudioClip>("Audio/Caught_Hey");
+        PlaySound(caughtSound, caughtVolume);
+    }
 
-        if (caughtAudio == null)
+    void PlaySwitchSound(bool on)
+    {
+        if (on)
         {
-            caughtAudio = gameObject.AddComponent<AudioSource>();
-            caughtAudio.playOnAwake = false;
-            caughtAudio.spatialBlend = 0f;
+            if (camerasOnSound == null) camerasOnSound = Resources.Load<AudioClip>("Audio/Camera_On");
+            PlaySound(camerasOnSound, switchVolume);
+        }
+        else
+        {
+            if (camerasOffSound == null) camerasOffSound = Resources.Load<AudioClip>("Audio/Camera_Off");
+            PlaySound(camerasOffSound, switchVolume);
+        }
+    }
+
+    // 2D (not from a camera's position), so the player hears it clearly wherever they are.
+    void PlaySound(AudioClip clip, float volume)
+    {
+        if (clip == null) return;
+
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.playOnAwake = false;
+            audioSource.spatialBlend = 0f;
         }
 
-        caughtAudio.PlayOneShot(caughtSound, caughtVolume);
+        audioSource.PlayOneShot(clip, volume);
     }
 
     void SetCameras(bool on, bool force = false)
     {
         if (!force && on == CamerasOn) return;
         CamerasOn = on;
+        if (!force) PlaySwitchSound(on); // not on the initial setup when the hole starts
         if (on) onCamerasOn?.Invoke();
         else onCamerasOff?.Invoke();
         CamerasSwitched?.Invoke(on);

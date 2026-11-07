@@ -34,6 +34,11 @@ namespace Golf.Throwing
 
         readonly OscillatingMeter _meter = new OscillatingMeter();
 
+        // Effort grunts played on release (Resources/Audio/ThrowGrunts). Shared by every ball.
+        static AudioClip[] s_Grunts;
+        static int s_LastGrunt = -1;
+        AudioSource _gruntSource;
+
         XRGrabInteractable _grab;
         Rigidbody _body;
         GolfBall _ball;
@@ -303,8 +308,34 @@ namespace Golf.Throwing
             }
         }
 
+        // Plays one of the effort grunts at random, never the same one twice in a row.
+        // 2D: it's the player's own voice.
+        void PlayThrowGrunt()
+        {
+            if (s_Grunts == null)
+                s_Grunts = Resources.LoadAll<AudioClip>("Audio/ThrowGrunts");
+            if (s_Grunts.Length == 0)
+                return;
+
+            int pick = Random.Range(0, s_Grunts.Length);
+            if (s_Grunts.Length > 1 && pick == s_LastGrunt)
+                pick = (pick + Random.Range(1, s_Grunts.Length)) % s_Grunts.Length;
+            s_LastGrunt = pick;
+
+            if (_gruntSource == null)
+            {
+                _gruntSource = gameObject.AddComponent<AudioSource>();
+                _gruntSource.playOnAwake = false;
+                _gruntSource.spatialBlend = 0f;
+            }
+
+            _gruntSource.PlayOneShot(s_Grunts[pick]);
+        }
+
         void ApplyLaunchVelocity()
         {
+            PlayThrowGrunt();
+
             float powerStrength = Mathf.Clamp01(LockedPower);
             float speed = Mathf.Lerp(minThrowSpeed, maxThrowSpeed, powerStrength);
             float yawError = (LockedAccuracy - 0.5f) * 2f * maxAccuracyYawDegrees;
