@@ -67,6 +67,7 @@ public class GolfBall : MonoBehaviour
 
     private Rigidbody rb;
     private SphereCollider sphere;
+    private MeshRenderer meshRenderer;
     private float slowTimer;
     private float timeSinceLaunch;
     private float currentLift;
@@ -76,6 +77,7 @@ public class GolfBall : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         sphere = GetComponent<SphereCollider>();
+        meshRenderer = GetComponent<MeshRenderer>();
 
         // Small, fast object: use the most careful collision mode so it doesn't pass through walls.
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
@@ -95,6 +97,24 @@ public class GolfBall : MonoBehaviour
         {
             Debug.LogWarning($"{name}: GolfBall should be on the 'Ball' layer.", this);
         }
+    }
+
+    /// <summary>Used by the cheat-throw hold so the hand sprite can show the ball instead.</summary>
+    public void SetVisible(bool visible)
+    {
+        if (meshRenderer == null)
+            meshRenderer = GetComponent<MeshRenderer>();
+        if (meshRenderer != null)
+            meshRenderer.enabled = visible;
+    }
+
+    /// <summary>Teleports the resting ball (keeps freeze/rest state).</summary>
+    public void TeleportWhileAtRest(Vector3 worldPosition)
+    {
+        rb.position = worldPosition;
+        transform.position = worldPosition;
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
     }
 
     private void Start()
