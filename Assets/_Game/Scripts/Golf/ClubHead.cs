@@ -259,6 +259,9 @@ public class ClubHead : MonoBehaviour
         PlayHitSound(ballSpeed);
         onLegitSwing?.Invoke();
 
+        // Drop so stance unlocks and the club can respawn beside the player on landing.
+        DropClub();
+
         // Follow the ball in flight, then place the player next to it (same as after a throw).
         Golf.Throwing.BallFlightFollower.Begin(ball);
 
@@ -311,6 +314,20 @@ public class ClubHead : MonoBehaviour
         {
             haptics.SendHapticImpulse(clubData.hapticAmplitude, clubData.hapticDuration);
         }
+    }
+
+    void DropClub()
+    {
+        if (grab == null || !grab.isSelected)
+            return;
+
+        var interactor = grab.firstInteractorSelecting ?? holder;
+        var manager = grab.interactionManager
+                      ?? Object.FindAnyObjectByType<XRInteractionManager>();
+        if (manager == null || interactor == null)
+            return;
+
+        manager.SelectExit(interactor, grab);
     }
 
     // Plays the club's hit sound from the head. Harder hits are louder; a little pitch

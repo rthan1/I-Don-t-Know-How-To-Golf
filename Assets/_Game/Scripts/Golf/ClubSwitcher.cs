@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
-using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 // Goes on the club's root object. Cycles through the clubs (Driver, Iron, Putter) when the player
 // presses the secondary button (B on the right controller, Y on the left) on the hand holding the club.
@@ -32,11 +31,8 @@ public class ClubSwitcher : MonoBehaviour
     public Transform visualRoot;
 
     [Header("Input")]
-    [Tooltip("Switch button when the club is in the right hand.")]
-    public InputAction rightSwitchButton = new InputAction("Right Switch Club", InputActionType.Button, "<XRController>{RightHand}/secondaryButton");
-
-    [Tooltip("Switch button when the club is in the left hand.")]
-    public InputAction leftSwitchButton = new InputAction("Left Switch Club", InputActionType.Button, "<XRController>{LeftHand}/secondaryButton");
+    [Tooltip("Cycles clubs while holding. Quest B/Y, or M in the simulator.")]
+    public InputAction switchClubButton = new InputAction("Switch Club", InputActionType.Button);
 
     [Header("Events")]
     [Tooltip("Fires every time the club changes.")]
@@ -60,6 +56,12 @@ public class ClubSwitcher : MonoBehaviour
 
         if (GetComponent<DesktopClubGrabInput>() == null)
             gameObject.AddComponent<DesktopClubGrabInput>();
+
+        if (GetComponent<ClubEquipGrab>() == null)
+            gameObject.AddComponent<ClubEquipGrab>();
+
+        if (GetComponent<ClubStanceLock>() == null)
+            gameObject.AddComponent<ClubStanceLock>();
     }
 
     // Start (not Awake) so the ClubHead has finished its own setup first.
@@ -72,24 +74,33 @@ public class ClubSwitcher : MonoBehaviour
 
     private void OnEnable()
     {
-        rightSwitchButton.performed += OnRightPressed;
-        leftSwitchButton.performed += OnLeftPressed;
-        rightSwitchButton.Enable();
-        leftSwitchButton.Enable();
+        EnsureSwitchBindings();
+        switchClubButton.performed += OnSwitchPressed;
+        switchClubButton.Enable();
     }
 
     private void OnDisable()
     {
-        rightSwitchButton.performed -= OnRightPressed;
-        leftSwitchButton.performed -= OnLeftPressed;
-        rightSwitchButton.Disable();
-        leftSwitchButton.Disable();
+        switchClubButton.performed -= OnSwitchPressed;
+        switchClubButton.Disable();
 
         if (blockedByBallHold && grab != null)
         {
             blockedByBallHold = false;
             grab.enabled = true;
         }
+    }
+
+    void EnsureSwitchBindings()
+    {
+        if (switchClubButton.bindings.Count > 0)
+            return;
+
+        // Quest: B (right) / Y (left). Simulator Device Controls map secondary → M.
+        switchClubButton.AddBinding("<XRController>{RightHand}/secondaryButton");
+        switchClubButton.AddBinding("<XRController>{LeftHand}/secondaryButton");
+        // Direct keyboard fallback so simulator club-switch works even if XR secondary isn't wired.
+        switchClubButton.AddBinding("<Keyboard>/m");
     }
 
     void SyncGrabBlockedByBallHold()
@@ -135,15 +146,12 @@ public class ClubSwitcher : MonoBehaviour
         return false;
     }
 
-    private void OnRightPressed(InputAction.CallbackContext context) => TrySwitch(InteractorHandedness.Right);
-
-    private void OnLeftPressed(InputAction.CallbackContext context) => TrySwitch(InteractorHandedness.Left);
-
-    // Only switch if the button was pressed on the hand that's actually holding the club.
-    private void TrySwitch(InteractorHandedness pressedHand)
+    void OnSwitchPressed(InputAction.CallbackContext context)
     {
-        if (grab == null || !grab.isSelected) return;
-        if (grab.firstInteractorSelecting.handedness != pressedHand) return;
+        // Any switch input while holding the club cycles it (no handedness gate —
+        // simulator interactors often report None and were blocking M / secondary).
+        if (grab == null || !grab.isSelected)
+            return;
 
         NextClub();
     }

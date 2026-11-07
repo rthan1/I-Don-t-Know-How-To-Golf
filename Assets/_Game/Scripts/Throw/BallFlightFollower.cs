@@ -15,9 +15,9 @@ namespace Golf.Throwing
         const float LandStandBack = 0.25f;
         const float LandStandLeft = 0.4f;
         const float LandCameraRaise = 0.75f;
-        const float ClubNearbyForward = 0.1f;
-        const float ClubNearbyRight = 0.7f;
-        const float ClubNearbyHeight = 1.2f;
+        const float ClubNearbyLeft = 0.55f;
+        const float ClubNearbyForward = 0.25f;
+        const float ClubNearbyGripHeight = 1.05f;
         const float GroundProbeUp = 3f;
         const float GroundProbeDown = 40f;
         const float FadeOutSeconds = 0.2f;
@@ -260,6 +260,9 @@ namespace Golf.Throwing
 
         void BringClubNearby()
         {
+            // Place after the player teleport: to the player's left at grab height (not in the ground).
+            if (_camera == null)
+                ResolveRig();
             if (_camera == null)
                 return;
 
@@ -270,13 +273,14 @@ namespace Golf.Throwing
             else
                 right.Normalize();
 
-            Vector3 pos = _camera.position + flatFwd * ClubNearbyForward + right * ClubNearbyRight;
+            Vector3 left = -right;
+            Vector3 pos = _camera.position + left * ClubNearbyLeft + flatFwd * ClubNearbyForward;
             if (TryGetGroundY(pos, out float groundY))
-                pos.y = groundY + ClubNearbyHeight;
+                pos.y = groundY + ClubNearbyGripHeight;
             else
                 pos.y = _camera.position.y - 0.35f;
 
-            Quaternion rot = Quaternion.Euler(0f, _camera.eulerAngles.y, 0f);
+            Quaternion rot = Quaternion.LookRotation(flatFwd, Vector3.up);
 
             var clubs = Object.FindObjectsByType<ClubSwitcher>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
             for (int i = 0; i < clubs.Length; i++)

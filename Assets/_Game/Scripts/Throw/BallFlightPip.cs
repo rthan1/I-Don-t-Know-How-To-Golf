@@ -4,24 +4,31 @@ using UnityEngine.UI;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Head-locked top-left picture-in-picture that follows a ball in flight.
+    /// World-space ball cam that orbits with the player like the stroke counter,
+    /// on the right so it does not sit over the left-side stroke board.
+    /// Follows the rig facing (not the headset), so looking around does not move it.
     /// </summary>
     public sealed class BallFlightPip : MonoBehaviour
     {
         const int RtWidth = 512;
         const int RtHeight = 288;
         const float BackDistance = 2.2f;
-        const float HeightOffset = 1.1f;
+        const float CamHeightOffset = 1.1f;
         const float MinFlightSpeed = 0.4f;
-        const float PipLocalX = -0.30f;
-        const float PipLocalY = 0.20f;
-        const float PipLocalZ = 0.55f;
-        const float PipWidth = 0.28f;
-        const float PipHeight = 0.1575f;
+
+        // Same orbit style as StrokeDisplay, but on the right so it clears the stroke board.
+        const float OrbitDistance = 0.95f;
+        const float OrbitAngleRight = 55f;
+        const float OrbitHeightOffset = -0.05f;
+        const float FollowSpeed = 6f;
+        const float PipWorldWidth = 0.42f;
+        const float PipWorldHeight = 0.236f;
 
         GolfBall _ball;
         Transform _holeTarget;
         Camera _pipCamera;
+        Camera _playerCamera;
+        Transform _rig;
         RenderTexture _rt;
         GameObject _uiRoot;
         Vector3 _lastTravelDir = Vector3.forward;
@@ -42,9 +49,11 @@ namespace Golf.Throwing
             if (initialTravelDir.sqrMagnitude > 0.0001f)
                 _lastTravelDir = Flatten(initialTravelDir);
 
+            ResolvePlayer();
             BuildCamera();
             BuildUi();
             UpdateCameraPose(instant: true);
+            UpdateUiOrbit(instant: true);
         }
 
         public void SetCameraEnabled(bool enabled)
@@ -84,10 +93,20 @@ namespace Golf.Throwing
             if (_ball == null)
                 return;
 
-            AttachUiToHeadset();
+            ResolvePlayer();
+            UpdateUiOrbit(instant: false);
             UpdateTravelDir();
             if (_cameraEnabled)
                 UpdateCameraPose(instant: false);
+        }
+
+        void ResolvePlayer()
+        {
+            if (_playerCamera == null)
+                _playerCamera = Camera.main;
+
+            if (_playerCamera != null && _rig == null)
+                _rig = _playerCamera.transform.root;
         }
 
         void BuildCamera()
@@ -118,20 +137,17 @@ namespace Golf.Throwing
 
         void BuildUi()
         {
-            Camera headset = Camera.main;
-            Transform parent = headset != null ? headset.transform : transform;
-
             _uiRoot = new GameObject("BallFlightPipUI", typeof(RectTransform));
-            _uiRoot.transform.SetParent(parent, false);
+            // Unparented world space — orbits the player like StrokeDisplay.
+            _uiRoot.transform.SetParent(null, false);
 
             var canvas = _uiRoot.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.sortingOrder = 250;
 
             var rect = _uiRoot.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(PipWidth * 1000f, PipHeight * 1000f);
+            rect.sizeDelta = new Vector2(PipWorldWidth * 1000f, PipWorldHeight * 1000f);
             _uiRoot.transform.localScale = Vector3.one * 0.001f;
-            PlaceUiLocal();
 
             var frame = CreateUiChild("Frame", _uiRoot.transform);
             var frameImage = frame.AddComponent<Image>();
@@ -152,7 +168,6 @@ namespace Golf.Throwing
             labelRect.anchorMax = new Vector2(1f, 1f);
             labelRect.pivot = new Vector2(0.5f, 0.5f);
             labelRect.sizeDelta = new Vector2(0f, 70f);
-            // Centered on the top edge — clear of the ball, not too high.
             labelRect.anchoredPosition = new Vector2(0f, 6f);
 
             var label = labelGo.AddComponent<Text>();
@@ -167,28 +182,32 @@ namespace Golf.Throwing
             outline.effectDistance = new Vector2(3f, -3f);
         }
 
-        void AttachUiToHeadset()
+        void UpdateUiOrbit(bool instant)
         {
-            if (_uiRoot == null)
+            if (_uiRoot == null || _playerCamera == null)
                 return;
 
-            Camera headset = Camera.main;
-            if (headset == null)
-                return;
+            Transform head = _playerCamera.transform;
+            Vector3 facing = Vector3.ProjectOnPlane(_rig != null ? _rig.forward : head.forward, Vector3.up);
+            if (facing.sqrMagnitude < 0.0001f)
+                facing = Vector3.forward;
+            facing.Normalize();
 
-            if (_uiRoot.transform.parent != headset.transform)
-                _uiRoot.transform.SetParent(headset.transform, false);
+            Vector3 toBoard = Quaternion.AngleAxis(OrbitAngleRight, Vector3.up) * facing;
+            Vector3 target = head.position + toBoard * OrbitDistance + Vector3.up * OrbitHeightOffset;
 
-            PlaceUiLocal();
-        }
+            Vector3 current = _uiRoot.transform.position;
+            if (instant || (target - current).sqrMagnitude > 4f)
+                _uiRoot.transform.position = target;
+            else
+            {
+                float blend = 1f - Mathf.Exp(-FollowSpeed * Time.deltaTime);
+                _uiRoot.transform.position = Vector3.Lerp(current, target, blend);
+            }
 
-        void PlaceUiLocal()
-        {
-            if (_uiRoot == null)
-                return;
-
-            _uiRoot.transform.localPosition = new Vector3(PipLocalX, PipLocalY, PipLocalZ);
-            _uiRoot.transform.localRotation = Quaternion.identity;
+            Vector3 away = _uiRoot.transform.position - head.position;
+            if (away.sqrMagnitude > 0.0001f)
+                _uiRoot.transform.rotation = Quaternion.LookRotation(away, Vector3.up);
         }
 
         void UpdateTravelDir()
@@ -225,7 +244,7 @@ namespace Golf.Throwing
                     toward = toHole;
             }
 
-            Vector3 desired = ballPos - toward * BackDistance + Vector3.up * HeightOffset;
+            Vector3 desired = ballPos - toward * BackDistance + Vector3.up * CamHeightOffset;
             Transform camT = _pipCamera.transform;
             if (instant)
                 camT.position = desired;
