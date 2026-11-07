@@ -106,7 +106,7 @@ public class CheatTint : MonoBehaviour
 
         // Heartbeat: 2D, looping, silent until cheating starts.
         heartbeat = gameObject.AddComponent<AudioSource>();
-        heartbeat.clip = Resources.Load<AudioClip>("Audio/Heartbeat");
+        heartbeat.clip = SoundLibrary.Instance != null ? SoundLibrary.Instance.heartbeat : null;
         heartbeat.loop = true;
         heartbeat.playOnAwake = false;
         heartbeat.spatialBlend = 0f;

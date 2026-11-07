@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3cc7eafcf58e41909ea197000f02be0d, type: 3}
+  m_Name: SoundLibrary
+  m_EditorClassIdentifier: Assembly-CSharp::SoundLibrary
+  caught: {fileID: 8300000, guid: c2ef574157085494d8c38cbf766249ca, type: 3}
+  camerasOn: {fileID: 8300000, guid: da947c754defb5a4a884395e701e31fb, type: 3}
+  camerasOff: {fileID: 8300000, guid: 7ca1f627b348d5746bff4558220e02db, type: 3}
+  heartbeat: {fileID: 8300000, guid: f3db2c7218dd28947b3939448ff6be0f, type: 3}
+  throwGrunts:
+  - {fileID: 8300000, guid: e431729ed24187c4f9de3258965ff889, type: 3}
+  - {fileID: 8300000, guid: 85c3242b036bcac4585b5d52793627ba, type: 3}
+  - {fileID: 8300000, guid: c7f789aa19da7914187eaa323048e0ac, type: 3}
+  - {fileID: 8300000, guid: b6280b4e568ec0c4290e7cfa3e9b0984, type: 3}
+  - {fileID: 8300000, guid: ca235a4678753cf46850f4f1fbf36f1b, type: 3}
+  - {fileID: 8300000, guid: b6e4045a36b8a114e9b1d4def6ec5d74, type: 3}
+  cupIn: {fileID: 8300000, guid: ab8af8cb54f93304eb6fadbad1d20217, type: 3}

@@ -139,10 +139,10 @@ public sealed class CupHoleTrigger : MonoBehaviour
     }
 
     // Plays when the ball counts as in (not on every rim bounce). 2D, so the player hears it
-    // wherever they're standing. This component is added at runtime, so the clip comes from Resources.
+    // wherever they're standing. The clip comes from the SoundLibrary asset.
     void PlayCupSound()
     {
-        AudioClip clip = Resources.Load<AudioClip>("Audio/Cup_In");
+        AudioClip clip = SoundLibrary.Instance != null ? SoundLibrary.Instance.cupIn : null;
         if (clip == null)
             return;
 

@@ -41,18 +41,9 @@ public class SecurityCameraSystem : MonoBehaviour
     [Tooltip("Start the hole with the cameras off, so the player gets a window right away.")]
     public bool startOff = true;
 
-    [Header("Sound")]
-    [Tooltip("Played when a cheat gets caught. Leave empty to use the default \"Hey!\" (Resources/Audio/Caught_Hey).")]
-    public AudioClip caughtSound;
-
+    [Header("Sound (clips are in the SoundLibrary asset)")]
     [Tooltip("Volume of the caught sound, 0 to 1.")]
     [Range(0f, 1f)] public float caughtVolume = 1f;
-
-    [Tooltip("Played when the cameras switch on. Leave empty to use the default (Resources/Audio/Camera_On).")]
-    public AudioClip camerasOnSound;
-
-    [Tooltip("Played when the cameras switch off. Leave empty to use the default (Resources/Audio/Camera_Off).")]
-    public AudioClip camerasOffSound;
 
     [Tooltip("Volume of the camera on/off sounds, 0 to 1.")]
     [Range(0f, 1f)] public float switchVolume = 0.8f;
@@ -168,22 +159,14 @@ public class SecurityCameraSystem : MonoBehaviour
 
     void PlayCaughtSound()
     {
-        if (caughtSound == null) caughtSound = Resources.Load<AudioClip>("Audio/Caught_Hey");
-        PlaySound(caughtSound, caughtVolume);
+        SoundLibrary sounds = SoundLibrary.Instance;
+        if (sounds != null) PlaySound(sounds.caught, caughtVolume);
     }
 
     void PlaySwitchSound(bool on)
     {
-        if (on)
-        {
-            if (camerasOnSound == null) camerasOnSound = Resources.Load<AudioClip>("Audio/Camera_On");
-            PlaySound(camerasOnSound, switchVolume);
-        }
-        else
-        {
-            if (camerasOffSound == null) camerasOffSound = Resources.Load<AudioClip>("Audio/Camera_Off");
-            PlaySound(camerasOffSound, switchVolume);
-        }
+        SoundLibrary sounds = SoundLibrary.Instance;
+        if (sounds != null) PlaySound(on ? sounds.camerasOn : sounds.camerasOff, switchVolume);
     }
 
     // 2D (not from a camera's position), so the player hears it clearly wherever they are.

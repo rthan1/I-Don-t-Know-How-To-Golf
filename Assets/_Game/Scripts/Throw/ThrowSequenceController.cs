@@ -34,8 +34,7 @@ namespace Golf.Throwing
 
         readonly OscillatingMeter _meter = new OscillatingMeter();
 
-        // Effort grunts played on release (Resources/Audio/ThrowGrunts). Shared by every ball.
-        static AudioClip[] s_Grunts;
+        // Effort grunts played on release come from SoundLibrary.throwGrunts.
         static int s_LastGrunt = -1;
         AudioSource _gruntSource;
 
@@ -312,14 +311,13 @@ namespace Golf.Throwing
         // 2D: it's the player's own voice.
         void PlayThrowGrunt()
         {
-            if (s_Grunts == null)
-                s_Grunts = Resources.LoadAll<AudioClip>("Audio/ThrowGrunts");
-            if (s_Grunts.Length == 0)
+            AudioClip[] grunts = SoundLibrary.Instance != null ? SoundLibrary.Instance.throwGrunts : null;
+            if (grunts == null || grunts.Length == 0)
                 return;
 
-            int pick = Random.Range(0, s_Grunts.Length);
-            if (s_Grunts.Length > 1 && pick == s_LastGrunt)
-                pick = (pick + Random.Range(1, s_Grunts.Length)) % s_Grunts.Length;
+            int pick = Random.Range(0, grunts.Length);
+            if (grunts.Length > 1 && pick == s_LastGrunt)
+                pick = (pick + Random.Range(1, grunts.Length)) % grunts.Length;
             s_LastGrunt = pick;
 
             if (_gruntSource == null)
@@ -329,7 +327,8 @@ namespace Golf.Throwing
                 _gruntSource.spatialBlend = 0f;
             }
 
-            _gruntSource.PlayOneShot(s_Grunts[pick]);
+            if (grunts[pick] != null)
+                _gruntSource.PlayOneShot(grunts[pick]);
         }
 
         void ApplyLaunchVelocity()

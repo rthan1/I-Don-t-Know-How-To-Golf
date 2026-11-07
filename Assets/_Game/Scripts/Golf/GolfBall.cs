@@ -239,6 +239,48 @@ public class GolfBall : MonoBehaviour
         Freeze(true);
     }
 
+    /// <summary>
+    /// Sets a resting ball straight down onto whatever is now under it, e.g. after the pool table it was
+    /// sitting on goes away. A resting ball is frozen, so it can't fall on its own.
+    /// Also fixes LastRestPosition so a later reset doesn't put it back in mid-air.
+    /// restPositionOnly: only fix LastRestPosition (for a ball that's in the player's hand right now).
+    /// </summary>
+    public void DropToGround(bool restPositionOnly = false)
+    {
+        if (!IsAtRest) return; // a moving ball falls on its own
+
+        Vector3 from = restPositionOnly ? LastRestPosition : rb.position;
+        Vector3 centerOffset = transform.TransformPoint(sphere.center) - transform.position;
+        Vector3 center = from + centerOffset;
+        float radius = WorldRadius();
+
+        // Nearest solid thing straight below, ignoring the ball itself.
+        float nearest = float.PositiveInfinity;
+        foreach (RaycastHit hit in Physics.RaycastAll(center, Vector3.down, 200f, groundLayers, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.rigidbody == rb) continue;
+            nearest = Mathf.Min(nearest, hit.distance);
+        }
+
+        if (float.IsPositiveInfinity(nearest)) return;   // nothing below: leave it alone
+        float drop = nearest - radius - 0.002f;
+        if (drop < 0.005f) return;                       // already sitting on something
+
+        Vector3 grounded = from + Vector3.down * drop;
+        LastRestPosition = grounded;
+        if (!restPositionOnly)
+        {
+            rb.position = grounded;
+            transform.position = grounded;
+        }
+    }
+
+    private float WorldRadius()
+    {
+        Vector3 scale = transform.lossyScale;
+        return sphere.radius * Mathf.Max(scale.x, Mathf.Max(scale.y, scale.z));
+    }
+
     // Stops the ball completely and locks it in place so it can't creep down slopes.
     private void Freeze(bool fireEvent)
     {

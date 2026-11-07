@@ -2,7 +2,7 @@
 
 ## Audio
 
-**Throw grunts** (`Assets/_Game/Resources/Audio/ThrowGrunts/`)
+**Throw grunts** (`Assets/_Game/Audio/ThrowGrunts/`)
 "EFFORT SOUNDS (Male) - Audio Pack" by **VoiceBosch** (SoundBiter SFX library), files 01, 06, 12, 18, 22 and 34.
 Source: https://opengameart.org/content/effort-sounds-male-audio-pack
 License: [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
