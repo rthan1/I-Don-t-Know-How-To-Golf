@@ -598,6 +598,10 @@ public static class Hole1Builder
             Marker("BallSpawn", root.transform, ballSpawn);
             BuildTestBall(root.transform, ballSpawn, ballMat);
 
+            // Club floats at chest height just to the player's right, ready to grab.
+            Vector3 clubSpawn = new Vector3(tee.x + 0.35f, teeHeight + 1.2f, tee.y - 0.6f);
+            BuildClub(root.transform, clubSpawn);
+
             EnsurePlayer(scene, playerSpawn);
             SetupAtmosphere(scene);
 
@@ -2805,6 +2809,21 @@ public static class Hole1Builder
 
         GameObject ball = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
         ball.transform.localPosition = position;
+    }
+
+    /// Places the Club prefab at the given spot (it floats in place until grabbed).
+    static void BuildClub(Transform parent, Vector3 position)
+    {
+        const string ClubPrefabPath = "Assets/_Game/Prefabs/Club.prefab";
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ClubPrefabPath);
+        if (prefab == null)
+        {
+            Debug.LogWarning("Hole builder: couldn't find " + ClubPrefabPath + ", skipping the club.");
+            return;
+        }
+
+        GameObject club = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+        club.transform.localPosition = position;
     }
 
     static void Marker(string name, Transform parent, Vector3 position)
