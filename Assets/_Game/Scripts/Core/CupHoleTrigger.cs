@@ -95,6 +95,7 @@ public sealed class CupHoleTrigger : MonoBehaviour
         _finished = true;
         HoldBallInCup(_ballInside);
         ClearTracking();
+        PlayCupSound();
 
         if (StrokeManager.Instance != null)
             StrokeManager.Instance.FinishHole();
@@ -135,6 +136,20 @@ public sealed class CupHoleTrigger : MonoBehaviour
         Vector3 rest = transform.position;
         rest.y += 0.02f;
         ball.ForceRestAt(rest);
+    }
+
+    // Plays when the ball counts as in (not on every rim bounce). 2D, so the player hears it
+    // wherever they're standing. This component is added at runtime, so the clip comes from Resources.
+    void PlayCupSound()
+    {
+        AudioClip clip = Resources.Load<AudioClip>("Audio/Cup_In");
+        if (clip == null)
+            return;
+
+        var source = gameObject.AddComponent<AudioSource>();
+        source.playOnAwake = false;
+        source.spatialBlend = 0f;
+        source.PlayOneShot(clip);
     }
 
     void ClearTracking()
