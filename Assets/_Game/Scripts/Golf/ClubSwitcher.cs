@@ -65,6 +65,8 @@ public class ClubSwitcher : MonoBehaviour
 
         if (GetComponent<ClubEquipGrab>() == null)
             gameObject.AddComponent<ClubEquipGrab>();
+        if (GetComponent<ClubGripSelectGuard>() == null)
+            gameObject.AddComponent<ClubGripSelectGuard>();
 
         if (GetComponent<ClubStanceLock>() == null)
             gameObject.AddComponent<ClubStanceLock>();

@@ -19,10 +19,10 @@ public sealed class PoolCueShot : MonoBehaviour
     [Range(0.4f, 0.6f)] public float perfectPoint = 0.5f;
 
     [Tooltip("Aim for the ball to stop this far past the cup center so it drops in.")]
-    [Min(0f)] public float stopPastCup = 0.08f;
+    [Min(0f)] public float stopPastCup = 0.14f;
 
     [Tooltip("Extra speed on top of the physics estimate so a green hit still reaches on real felt.")]
-    [Min(1f)] public float perfectSpeedBoost = 1.12f;
+    [Min(1f)] public float perfectSpeedBoost = 1.32f;
 
     const float StartDelay = 0.4f;
     const float ConfirmCooldown = 0.3f;

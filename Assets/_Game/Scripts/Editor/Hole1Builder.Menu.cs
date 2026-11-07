@@ -339,8 +339,8 @@ public static partial class Hole1Builder
         var group = new GameObject("SecurityCameras");
         group.transform.SetParent(parent, false);
         var system = group.AddComponent<SecurityCameraSystem>();
-        system.offDuration = 2.5f;
-        system.onDuration = 2.5f;
+        system.offDurationMin = system.offDurationMax = 2.5f;
+        system.onDurationMin = system.onDurationMax = 2.5f;
         system.startOff = false;
 
         PlaceSecurityCamera(group.transform, "SecurityCamera", new Vector3(4.4f, -0.3f, 3.4f), new Vector3(0f, 1.6f, 0f),

@@ -134,7 +134,8 @@ public class StrokeManager : MonoBehaviour
 
     private void HandleCaught(ICatchableCheat cheat)
     {
-        AddPenalty("CAUGHT: " + cheat.CheatName);
+        // SecurityCameraSystem already collapses multi-cheat busts into one event.
+        AddPenalty("CAUGHT: " + (cheat != null ? cheat.CheatName : "Cheat"));
     }
 
     // Adds a one-stroke penalty, e.g. AddPenalty("Water") or AddPenalty("Out of bounds").

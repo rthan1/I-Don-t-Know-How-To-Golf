@@ -29,11 +29,17 @@ public interface ICatchableCheat
 public class SecurityCameraSystem : MonoBehaviour
 {
     [Header("Timing (seconds)")]
-    [Tooltip("How long the cameras stay off. Make it long enough to fit a cheat throw comfortably.")]
-    [Min(0.1f)] public float offDuration = 10f;
+    [Tooltip("Shortest time cameras stay off between scans.")]
+    [Min(0.1f)] public float offDurationMin = 6f;
 
-    [Tooltip("How long the cameras stay on.")]
-    [Min(0.1f)] public float onDuration = 5f;
+    [Tooltip("Longest time cameras stay off between scans.")]
+    [Min(0.1f)] public float offDurationMax = 14f;
+
+    [Tooltip("Shortest time cameras stay on.")]
+    [Min(0.1f)] public float onDurationMin = 3f;
+
+    [Tooltip("Longest time cameras stay on.")]
+    [Min(0.1f)] public float onDurationMax = 8f;
 
     [Tooltip("Right after the cameras switch on, cheating doesn't count for this long. Covers a cheat that ends right on the edge.")]
     [Min(0f)] public float graceTime = 0.5f;
@@ -71,11 +77,13 @@ public class SecurityCameraSystem : MonoBehaviour
     public bool CamerasOn { get; private set; }
 
     /// <summary>Seconds until the cameras next switch on or off.</summary>
-    public float TimeUntilSwitch => Mathf.Max(0f, (CamerasOn ? onDuration : offDuration) - phaseTime);
+    public float TimeUntilSwitch => Mathf.Max(0f, _phaseDuration - phaseTime);
 
     static readonly List<ICatchableCheat> cheats = new List<ICatchableCheat>();
 
     float phaseTime;
+    float _phaseDuration = 10f;
+    float _catchCooldownUntil;
     AudioSource audioSource;
 
     // Clears leftovers from the last Play session (in case domain reload is turned off)
@@ -117,6 +125,7 @@ public class SecurityCameraSystem : MonoBehaviour
 
         phaseTime = 0f;
         SetCameras(!startOff, force: true);
+        RollNextPhaseDuration();
     }
 
     void OnDisable()
@@ -127,34 +136,83 @@ public class SecurityCameraSystem : MonoBehaviour
     void Update()
     {
         phaseTime += Time.deltaTime;
-        if (phaseTime >= (CamerasOn ? onDuration : offDuration))
+        if (phaseTime >= _phaseDuration)
         {
             phaseTime = 0f;
             SetCameras(!CamerasOn);
+            RollNextPhaseDuration();
         }
 
-        if (CamerasOn && phaseTime >= graceTime)
+        if (CamerasOn && phaseTime >= graceTime && Time.time >= _catchCooldownUntil)
             CheckForCheats();
+    }
+
+    void RollNextPhaseDuration()
+    {
+        if (CamerasOn)
+        {
+            float min = Mathf.Min(onDurationMin, onDurationMax);
+            float max = Mathf.Max(onDurationMin, onDurationMax);
+            _phaseDuration = UnityEngine.Random.Range(min, max);
+        }
+        else
+        {
+            float min = Mathf.Min(offDurationMin, offDurationMax);
+            float max = Mathf.Max(offDurationMin, offDurationMax);
+            _phaseDuration = UnityEngine.Random.Range(min, max);
+        }
     }
 
     void CheckForCheats()
     {
-        // Copy, because OnCaught can unregister cheats
-        foreach (ICatchableCheat cheat in cheats.ToArray())
+        // Undo every active cheat in one bust, but only one penalty / sound / event.
+        // (Pool table + cheat throw used to each fire Catch → double strokes.)
+        ICatchableCheat primary = null;
+        var active = cheats.ToArray();
+        for (int i = 0; i < active.Length; i++)
         {
-            if (cheat == null || (cheat is UnityEngine.Object obj && obj == null)) { cheats.Remove(cheat); continue; }
-            if (!cheat.IsCheating) continue;
-            Catch(cheat);
+            ICatchableCheat cheat = active[i];
+            if (cheat == null || (cheat is UnityEngine.Object obj && obj == null))
+            {
+                cheats.Remove(cheat);
+                continue;
+            }
+
+            if (!cheat.IsCheating)
+                continue;
+
+            if (primary == null)
+                primary = cheat;
         }
+
+        if (primary == null)
+            return;
+
+        CatchAll(primary);
     }
 
-    void Catch(ICatchableCheat cheat)
+    void CatchAll(ICatchableCheat primary)
     {
-        Debug.Log("Caught on camera: " + cheat.CheatName);
-        cheat.OnCaught();
+        _catchCooldownUntil = Time.time + 0.75f;
+
+        var names = new List<string>(2);
+        foreach (ICatchableCheat cheat in cheats.ToArray())
+        {
+            if (cheat == null || (cheat is UnityEngine.Object obj && obj == null))
+                continue;
+            if (!cheat.IsCheating)
+                continue;
+
+            names.Add(cheat.CheatName);
+            cheat.OnCaught();
+        }
+
+        string label = names.Count == 0 ? primary.CheatName : string.Join(" + ", names);
+        Debug.Log("Caught on camera: " + label);
         PlayCaughtSound();
         onCaught?.Invoke();
-        CheatCaught?.Invoke(cheat);
+        // One stroke only — StrokeManager listens to this.
+        CheatCaught?.Invoke(primary);
     }
 
     void PlayCaughtSound()

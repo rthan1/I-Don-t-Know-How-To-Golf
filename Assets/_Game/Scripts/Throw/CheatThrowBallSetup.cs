@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Inputs.Readers;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
@@ -10,6 +11,7 @@ namespace Golf.Throwing
 {
     /// <summary>
     /// Adds XR grab + throw-sequence wiring to the gameplay GolfBall.
+    /// On Quest: index trigger (top) grabs the ball; side grip (bottom) is left for the club.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(GolfBall))]
@@ -24,8 +26,13 @@ namespace Golf.Throwing
         XRGrabInteractable _grab;
         SphereCollider _grabVolume;
         bool _wired;
-        bool _selectHeldLastFrame;
+        bool _triggerHeldLastFrame;
         float _suppressPickupUntil;
+        bool _expectTriggerGrab;
+
+        XRBaseInputInteractor _selectDriver;
+        XRInputButtonReader.InputSourceMode _savedSelectMode;
+        bool _drivingSelectFromTrigger;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Bootstrap()
@@ -62,10 +69,15 @@ namespace Golf.Throwing
         {
             SyncGrabAvailable();
             TryKeyboardPickup();
-            TryProximityGrabFallback();
+            TryProximityTriggerGrab();
+            DriveTriggerSelectWhileHeld();
         }
 
-        void OnDestroy() => Unwire();
+        void OnDestroy()
+        {
+            RestoreSelectDriver();
+            Unwire();
+        }
 
         public void EnsureWired()
         {
@@ -100,7 +112,6 @@ namespace Golf.Throwing
 
             _sequence.Initialize(_grab, body);
 
-            // Force collider/interaction refresh after runtime component adds.
             if (_grab.enabled)
             {
                 _grab.enabled = false;
@@ -116,7 +127,6 @@ namespace Golf.Throwing
             if (_grab == null || _ball == null)
                 return;
 
-            // Brief lockout after a manual cancel so the same press can't re-grab.
             if (Time.time < _suppressPickupUntil)
             {
                 if (_grab.enabled)
@@ -124,11 +134,9 @@ namespace Golf.Throwing
                 return;
             }
 
-            // Keep grab enabled while already held / in throw UI.
             if (_grab.isSelected || (_sequence != null && _sequence.IsActive))
                 return;
 
-            // Holding a club means the ball is not grabbable (Quest + simulator).
             bool allowPickup = _ball.IsAtRest && !IsAnyClubHeld();
             if (_grab.enabled != allowPickup)
                 _grab.enabled = allowPickup;
@@ -152,7 +160,6 @@ namespace Golf.Throwing
                 _grabVolume = volumeGo.AddComponent<SphereCollider>();
             }
 
-            // Default layer so NearFar casters can hit it even when the ball is on Ball.
             volumeGo.layer = 0;
             volumeGo.transform.localPosition = Vector3.zero;
             volumeGo.transform.localRotation = Quaternion.identity;
@@ -173,7 +180,6 @@ namespace Golf.Throwing
             if (_grab == null || _sequence == null || _ball == null)
                 return;
 
-            // G toggles: pick up when at rest, drop/cancel if already holding.
             if (_grab.isSelected || _sequence.IsActive)
             {
                 DropOrCancelHold();
@@ -188,7 +194,6 @@ namespace Golf.Throwing
 
         void DropOrCancelHold()
         {
-            // Block an immediate re-grab from the same select press after we force-exit.
             _suppressPickupUntil = Time.time + 0.25f;
 
             if (_sequence != null && _sequence.Phase != ThrowPhase.Idle)
@@ -206,7 +211,7 @@ namespace Golf.Throwing
                 _grab.enabled = false;
         }
 
-        void TryProximityGrabFallback()
+        void TryProximityTriggerGrab()
         {
             if (_grab == null || _sequence == null || _ball == null)
                 return;
@@ -217,19 +222,18 @@ namespace Golf.Throwing
             if (IsAnyClubHeld())
                 return;
 
-            XRBaseInputInteractor interactor = FindPreferredInteractor(out bool selectPressed);
+            XRBaseInputInteractor interactor = FindPreferredInteractor(out bool grabPressed);
             if (interactor == null)
                 return;
 
-            // Already holding something (club, etc.) with this hand — don't steal for the ball.
             if (interactor.hasSelection)
             {
-                _selectHeldLastFrame = selectPressed;
+                _triggerHeldLastFrame = grabPressed;
                 return;
             }
 
-            bool risingEdge = selectPressed && !_selectHeldLastFrame;
-            _selectHeldLastFrame = selectPressed;
+            bool risingEdge = grabPressed && !_triggerHeldLastFrame;
+            _triggerHeldLastFrame = grabPressed;
             if (!risingEdge)
                 return;
 
@@ -237,6 +241,54 @@ namespace Golf.Throwing
                 return;
 
             TryForceSelectEnter(interactor);
+        }
+
+        void DriveTriggerSelectWhileHeld()
+        {
+            if (!_drivingSelectFromTrigger || _selectDriver == null)
+                return;
+
+            if (_grab == null || !_grab.isSelected)
+            {
+                RestoreSelectDriver();
+                return;
+            }
+
+            bool held = ReadBallGrabButton(_selectDriver);
+            _selectDriver.selectInput.inputSourceMode = XRInputButtonReader.InputSourceMode.ManualValue;
+            _selectDriver.selectInput.QueueManualState(held, held ? 1f : 0f);
+        }
+
+        void BeginTriggerDrivenSelect(XRBaseInputInteractor interactor)
+        {
+            if (interactor == null)
+                return;
+
+            if (_selectDriver != null && _selectDriver != interactor)
+                RestoreSelectDriver();
+
+            if (!_drivingSelectFromTrigger)
+            {
+                _selectDriver = interactor;
+                _savedSelectMode = interactor.selectInput.inputSourceMode;
+                _drivingSelectFromTrigger = true;
+            }
+
+            interactor.selectInput.inputSourceMode = XRInputButtonReader.InputSourceMode.ManualValue;
+            interactor.selectInput.QueueManualState(true, 1f);
+        }
+
+        void RestoreSelectDriver()
+        {
+            if (_selectDriver != null && _drivingSelectFromTrigger)
+            {
+                _selectDriver.selectInput.inputSourceMode = _savedSelectMode;
+                // Clear any queued manual state so grip works again next frame.
+                _selectDriver.selectInput.QueueManualState(false, 0f);
+            }
+
+            _selectDriver = null;
+            _drivingSelectFromTrigger = false;
         }
 
         void TryForceSelectEnter(XRBaseInputInteractor preferred = null)
@@ -261,26 +313,36 @@ namespace Golf.Throwing
             if (manager == null)
                 return;
 
+            BeginTriggerDrivenSelect(interactor);
+            _expectTriggerGrab = true;
             manager.SelectEnter((IXRSelectInteractor)interactor, (IXRSelectInteractable)_grab);
+            _expectTriggerGrab = false;
         }
 
         void TryForceSelectExit()
         {
             if (_grab == null || !_grab.isSelected)
+            {
+                RestoreSelectDriver();
                 return;
+            }
 
             var interactor = _grab.firstInteractorSelecting;
             var manager = _grab.interactionManager
                           ?? FindAnyObjectByType<XRInteractionManager>();
             if (manager == null || interactor == null)
+            {
+                RestoreSelectDriver();
                 return;
+            }
 
             manager.SelectExit(interactor, _grab);
+            RestoreSelectDriver();
         }
 
-        static XRBaseInputInteractor FindPreferredInteractor(out bool selectPressed)
+        static XRBaseInputInteractor FindPreferredInteractor(out bool grabPressed)
         {
-            selectPressed = false;
+            grabPressed = false;
             XRBaseInputInteractor right = null;
             XRBaseInputInteractor anyPressed = null;
 
@@ -293,7 +355,7 @@ namespace Golf.Throwing
                 if (interactor.gameObject.name.IndexOf("Teleport", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
 
-                bool pressed = interactor.selectInput.ReadIsPerformed();
+                bool pressed = ReadBallGrabButton(interactor);
                 bool isRight = interactor.handedness == InteractorHandedness.Right
                                || interactor.name.IndexOf("Right", System.StringComparison.OrdinalIgnoreCase) >= 0;
 
@@ -302,7 +364,7 @@ namespace Golf.Throwing
                     right = interactor;
                     if (pressed)
                     {
-                        selectPressed = true;
+                        grabPressed = true;
                         return interactor;
                     }
                 }
@@ -310,15 +372,32 @@ namespace Golf.Throwing
                 if (pressed && anyPressed == null)
                 {
                     anyPressed = interactor;
-                    selectPressed = true;
+                    grabPressed = true;
                 }
             }
 
             if (anyPressed != null)
                 return anyPressed;
 
-            selectPressed = false;
+            grabPressed = false;
             return right;
+        }
+
+        /// <summary>
+        /// Quest: index trigger grabs the ball. Editor / device simulator without XR nodes
+        /// falls back to the interactor select so mouse/sim still works.
+        /// </summary>
+        static bool ReadBallGrabButton(XRBaseInputInteractor interactor)
+        {
+            if (interactor == null)
+                return false;
+
+            var node = VrControllerButtons.NodeForInteractor(interactor);
+            var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
+            if (device.isValid)
+                return VrControllerButtons.IsTriggerHeld(node);
+
+            return interactor.selectInput.ReadIsPerformed();
         }
 
         void Wire()
@@ -345,33 +424,54 @@ namespace Golf.Throwing
         {
             if (Time.time < _suppressPickupUntil)
             {
-                if (args.manager != null && args.interactorObject != null)
-                    args.manager.SelectExit(args.interactorObject, _grab);
+                RejectSelect(args);
                 return;
             }
 
             if (IsAnyClubHeld())
             {
-                if (args.manager != null && args.interactorObject != null)
-                    args.manager.SelectExit(args.interactorObject, _grab);
+                RejectSelect(args);
                 return;
             }
 
             if (_ball != null && !_ball.IsAtRest)
             {
-                if (args.manager != null && args.interactorObject != null)
-                    args.manager.SelectExit(args.interactorObject, _grab);
+                RejectSelect(args);
                 return;
             }
 
-            if (!_sequence.TryBegin(args))
+            // Real VR: grip (bottom) must not pick up the ball — only the index trigger (top).
+            if (!_expectTriggerGrab
+                && args.interactorObject is XRBaseInteractor baseInteractor)
             {
-                if (args.manager != null && args.interactorObject != null)
-                    args.manager.SelectExit(args.interactorObject, _grab);
+                var node = VrControllerButtons.NodeForInteractor(baseInteractor);
+                var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(node);
+                if (device.isValid && !VrControllerButtons.IsTriggerHeld(node))
+                {
+                    RejectSelect(args);
+                    return;
+                }
+
+                if (baseInteractor is XRBaseInputInteractor inputInteractor)
+                    BeginTriggerDrivenSelect(inputInteractor);
             }
+
+            if (!_sequence.TryBegin(args))
+                RejectSelect(args);
         }
 
-        void OnSelectExited(SelectExitEventArgs args) => _sequence.HandleReleased(args);
+        void OnSelectExited(SelectExitEventArgs args)
+        {
+            RestoreSelectDriver();
+            _sequence.HandleReleased(args);
+        }
+
+        void RejectSelect(SelectEnterEventArgs args)
+        {
+            if (args.manager != null && args.interactorObject != null && _grab != null)
+                args.manager.SelectExit(args.interactorObject, _grab);
+            RestoreSelectDriver();
+        }
 
         static bool IsAnyClubHeld()
         {
