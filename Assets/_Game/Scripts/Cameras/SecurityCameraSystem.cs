@@ -41,6 +41,13 @@ public class SecurityCameraSystem : MonoBehaviour
     [Tooltip("Start the hole with the cameras off, so the player gets a window right away.")]
     public bool startOff = true;
 
+    [Header("Sound")]
+    [Tooltip("Played when a cheat gets caught. Leave empty to use the default \"Hey!\" (Resources/Audio/Caught_Hey).")]
+    public AudioClip caughtSound;
+
+    [Tooltip("Volume of the caught sound, 0 to 1.")]
+    [Range(0f, 1f)] public float caughtVolume = 1f;
+
     [Header("Events")]
     [Tooltip("Fires when a cheat gets caught on camera. The cheat has already been undone. Hook the stroke penalty, siren, etc. up here.")]
     public UnityEvent onCaught;
@@ -69,6 +76,7 @@ public class SecurityCameraSystem : MonoBehaviour
     static readonly List<ICatchableCheat> cheats = new List<ICatchableCheat>();
 
     float phaseTime;
+    AudioSource caughtAudio;
 
     // Clears leftovers from the last Play session (in case domain reload is turned off)
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -130,8 +138,26 @@ public class SecurityCameraSystem : MonoBehaviour
     {
         Debug.Log("Caught on camera: " + cheat.CheatName);
         cheat.OnCaught();
+        PlayCaughtSound();
         onCaught?.Invoke();
         CheatCaught?.Invoke(cheat);
+    }
+
+    // 2D (not from a camera's position), so the player hears it clearly wherever they are.
+    void PlayCaughtSound()
+    {
+        if (caughtSound == null)
+            caughtSound = Resources.Load<AudioClip>("Audio/Caught_Hey");
+        if (caughtSound == null) return;
+
+        if (caughtAudio == null)
+        {
+            caughtAudio = gameObject.AddComponent<AudioSource>();
+            caughtAudio.playOnAwake = false;
+            caughtAudio.spatialBlend = 0f;
+        }
+
+        caughtAudio.PlayOneShot(caughtSound, caughtVolume);
     }
 
     void SetCameras(bool on, bool force = false)
