@@ -1,3 +1,4 @@
+using Golf.Throwing;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.InputSystem;
@@ -46,6 +47,7 @@ public class ClubSwitcher : MonoBehaviour
 
     private XRGrabInteractable grab;
     private GameObject spawnedVisual;
+    private bool blockedByBallHold;
 
     private void Awake()
     {
@@ -66,6 +68,8 @@ public class ClubSwitcher : MonoBehaviour
         SetClub(startIndex);
     }
 
+    private void Update() => SyncGrabBlockedByBallHold();
+
     private void OnEnable()
     {
         rightSwitchButton.performed += OnRightPressed;
@@ -80,6 +84,55 @@ public class ClubSwitcher : MonoBehaviour
         leftSwitchButton.performed -= OnLeftPressed;
         rightSwitchButton.Disable();
         leftSwitchButton.Disable();
+
+        if (blockedByBallHold && grab != null)
+        {
+            blockedByBallHold = false;
+            grab.enabled = true;
+        }
+    }
+
+    void SyncGrabBlockedByBallHold()
+    {
+        if (grab == null)
+            return;
+
+        bool block = IsAnyBallHeldOrThrowing();
+        if (block)
+        {
+            if (!blockedByBallHold)
+                blockedByBallHold = true;
+
+            if (grab.enabled)
+                grab.enabled = false;
+            return;
+        }
+
+        if (!blockedByBallHold)
+            return;
+
+        blockedByBallHold = false;
+        grab.enabled = true;
+    }
+
+    public static bool IsAnyBallHeldOrThrowing()
+    {
+        var sequences = Object.FindObjectsByType<ThrowSequenceController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < sequences.Length; i++)
+        {
+            ThrowSequenceController sequence = sequences[i];
+            if (sequence == null)
+                continue;
+
+            if (sequence.IsActive)
+                return true;
+
+            var ballGrab = sequence.GetComponent<XRGrabInteractable>();
+            if (ballGrab != null && ballGrab.isSelected)
+                return true;
+        }
+
+        return false;
     }
 
     private void OnRightPressed(InputAction.CallbackContext context) => TrySwitch(InteractorHandedness.Right);

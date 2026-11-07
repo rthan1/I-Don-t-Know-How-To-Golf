@@ -41,8 +41,14 @@ public sealed class DesktopClubGrabInput : MonoBehaviour
 
     void TryGrab()
     {
+        if (!_grab.enabled || ClubSwitcher.IsAnyBallHeldOrThrowing())
+            return;
+
         XRBaseInputInteractor interactor = FindRightInteractor();
         if (interactor == null)
+            return;
+
+        if (interactor.hasSelection)
             return;
 
         if (Vector3.Distance(interactor.transform.position, transform.position) > GrabDistance)
