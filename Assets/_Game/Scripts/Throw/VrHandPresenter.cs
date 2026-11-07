@@ -1,9 +1,11 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Golf.Throwing
 {
     /// <summary>
     /// Hides controller models and attaches Quest-oriented hand sprites to the controllers.
+    /// Survives scene loads and rebinds to the new XR Origin controllers.
     /// </summary>
     public sealed class VrHandPresenter : MonoBehaviour
     {
@@ -21,21 +23,51 @@ namespace Golf.Throwing
         public SimpleHandVisual LeftHand => _left;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void Bootstrap()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            EnsurePresenterExists();
+            if (Instance != null)
+                Instance.RebindToCurrentControllers();
+        }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            EnsurePresenterExists();
+            if (Instance != null)
+                Instance.RebindToCurrentControllers();
+        }
+
         static void EnsurePresenterExists()
         {
-            if (Object.FindFirstObjectByType<VrHandPresenter>(FindObjectsInactive.Include) != null)
+            if (Instance != null)
                 return;
 
-            if (FindTransform("Left Controller") == null || FindTransform("Right Controller") == null)
+            var existing = Object.FindFirstObjectByType<VrHandPresenter>(FindObjectsInactive.Include);
+            if (existing != null)
+            {
+                Instance = existing;
+                Object.DontDestroyOnLoad(existing.gameObject);
                 return;
+            }
 
+            // Create even if controllers aren't ready yet; Update/rebind will attach later.
             var go = new GameObject("VrHandPresenter");
+            Object.DontDestroyOnLoad(go);
             go.AddComponent<VrHandPresenter>();
         }
 
         void Awake()
         {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
             Instance = this;
+            DontDestroyOnLoad(gameObject);
             ForceResolveSprites();
         }
 
@@ -47,6 +79,16 @@ namespace Golf.Throwing
                 TrySetupHands();
             else
                 KeepControllerVisualsHidden();
+        }
+
+        void RebindToCurrentControllers()
+        {
+            // Old hand sprites were parented under the previous scene's XR Origin.
+            _left = null;
+            _right = null;
+            _ready = false;
+            ForceResolveSprites();
+            TrySetupHands();
         }
 
         void ForceResolveSprites()
@@ -115,6 +157,29 @@ namespace Golf.Throwing
                 _right.SetGrabbing(grabbing);
         }
 
+        public void SetLeftHandVisible(bool visible)
+        {
+            if (!_ready)
+                TrySetupHands();
+
+            if (_left == null)
+                return;
+
+            _left.gameObject.SetActive(visible);
+            if (visible)
+                _left.SetGrabbing(false);
+        }
+
+        public Transform LeftControllerTransform
+        {
+            get
+            {
+                if (!_ready)
+                    TrySetupHands();
+                return _left != null ? _left.transform.parent : null;
+            }
+        }
+
         public void SetHandsVisible(bool visible)
         {
             if (!_ready)
@@ -159,6 +224,9 @@ namespace Golf.Throwing
             _left = EnsureHand(leftController, rightHand: false);
             _right = EnsureHand(rightController, rightHand: true);
             _ready = _left != null && _right != null;
+
+            if (_ready)
+                SetHandsVisible(true);
         }
 
         void KeepControllerVisualsHidden()

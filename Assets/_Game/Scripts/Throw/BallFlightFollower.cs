@@ -1,3 +1,4 @@
+using System.Collections;
 using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
@@ -5,15 +6,12 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 namespace Golf.Throwing
 {
     /// <summary>
-    /// Follows behind the ball on the flag line of sight, then on landing places
-    /// the player behind the ball facing the hole and brings the club nearby.
+    /// VR-comfortable flight watch: player stays put with a ball PIP, then
+    /// fade-teleports behind the ball when it stops and brings the club nearby.
     /// </summary>
     public sealed class BallFlightFollower : MonoBehaviour
     {
-        const float FollowSmoothTime = 0.1f;
-        const float FlightBackDistance = 1.0f;
         const float MinFlightSpeed = 0.4f;
-        const float MinHeightAboveGround = 0.75f;
         const float LandStandBack = 0.25f;
         const float LandStandLeft = 0.4f;
         const float LandCameraRaise = 0.75f;
@@ -22,6 +20,8 @@ namespace Golf.Throwing
         const float ClubNearbyHeight = 1.2f;
         const float GroundProbeUp = 3f;
         const float GroundProbeDown = 40f;
+        const float FadeOutSeconds = 0.2f;
+        const float FadeInSeconds = 0.25f;
 
         static BallFlightFollower s_Instance;
 
@@ -35,19 +35,21 @@ namespace Golf.Throwing
         GroundFollow _groundFollow;
         bool _groundFollowWasEnabled;
         bool _groundFollowSuspended;
-        Vector3 _followVelocity;
         Vector3 _lastTravelDir = Vector3.forward;
         float _landOriginHeightAboveGround;
         float _landFallbackOriginY;
         bool _hasLandGroundAnchor;
-        bool _following;
+        bool _watching;
+        bool _landing;
+        BallFlightPip _pip;
+        Coroutine _landRoutine;
 
         public static void Begin(GolfBall ball)
         {
             if (ball == null)
                 return;
 
-            EnsureInstance().StartFollow(ball);
+            EnsureInstance().StartWatch(ball);
         }
 
         static BallFlightFollower EnsureInstance()
@@ -73,12 +75,25 @@ namespace Golf.Throwing
         {
             if (s_Instance == this)
                 s_Instance = null;
+
+            if (_landRoutine != null)
+                StopCoroutine(_landRoutine);
+
+            DisposePip();
             UnbindBall();
         }
 
-        void StartFollow(GolfBall ball)
+        void StartWatch(GolfBall ball)
         {
+            if (_landRoutine != null)
+            {
+                StopCoroutine(_landRoutine);
+                _landRoutine = null;
+            }
+
             UnbindBall();
+            DisposePip();
+            _landing = false;
 
             _ball = ball;
             _ball.onStopped.AddListener(OnBallStopped);
@@ -86,32 +101,18 @@ namespace Golf.Throwing
             ResolveRig();
             if (_origin == null || _camera == null || _originRoot == null)
             {
-                Finish(placeBehindBall: false);
+                FinishWithoutTeleport();
                 return;
             }
 
             CaptureLandingStandingHeight();
 
-            if (_character != null)
-            {
-                _characterWasEnabled = _character.enabled;
-                _character.enabled = false;
-            }
-
-            if (_groundFollow != null)
-            {
-                _groundFollowWasEnabled = _groundFollow.enabled;
-                _groundFollow.enabled = false;
-                _groundFollowSuspended = true;
-            }
-
             if (VrHandPresenter.Instance != null)
                 VrHandPresenter.Instance.SetHandsVisible(false);
 
             PlayerLocomotionLock.SetLocked(true);
-            _followVelocity = Vector3.zero;
             _holeTarget = FindHoleTarget();
-            _following = true;
+            _watching = true;
 
             Rigidbody body = _ball.GetComponent<Rigidbody>();
             if (body != null && body.linearVelocity.sqrMagnitude > 0.01f)
@@ -123,29 +124,105 @@ namespace Golf.Throwing
                     _lastTravelDir = Flatten(fromCam);
             }
 
-            FollowBall(smooth: false);
+            _pip = BallFlightPip.Create(_ball, _holeTarget, _lastTravelDir);
         }
 
-        void Finish(bool placeBehindBall)
+        void LateUpdate()
         {
-            if (!_following && _ball == null)
+            if (!_watching || _landing || _ball == null)
                 return;
 
+            UpdateTravelFallback();
+
+            if (_ball.IsAtRest)
+                BeginLanding();
+        }
+
+        void OnBallStopped()
+        {
+            if (_watching && !_landing)
+                BeginLanding();
+        }
+
+        void BeginLanding()
+        {
+            if (_landing)
+                return;
+
+            _landing = true;
+            _watching = false;
+            _landRoutine = StartCoroutine(LandSequence());
+        }
+
+        IEnumerator LandSequence()
+        {
             GolfBall landedBall = _ball;
-            _following = false;
-            _followVelocity = Vector3.zero;
             UnbindBall();
 
-            if (placeBehindBall && landedBall != null)
+            if (_pip != null)
+                _pip.SetCameraEnabled(false);
+
+            ComfortFade fade = ComfortFade.Ensure();
+            yield return fade.FadeOut(FadeOutSeconds);
+
+            SuspendRigMovers(true);
+
+            if (landedBall != null)
             {
                 PlaceBehindBallFacingHole(landedBall);
                 BringClubNearby();
             }
 
-            _holeTarget = null;
+            DisposePip();
+
+            yield return fade.FadeIn(FadeInSeconds);
+
+            SuspendRigMovers(false);
 
             if (VrHandPresenter.Instance != null)
                 VrHandPresenter.Instance.SetHandsVisible(true);
+
+            PlayerLocomotionLock.ForceUnlock();
+
+            _holeTarget = null;
+            _landing = false;
+            _landRoutine = null;
+        }
+
+        void FinishWithoutTeleport()
+        {
+            _watching = false;
+            _landing = false;
+            DisposePip();
+            UnbindBall();
+
+            if (VrHandPresenter.Instance != null)
+                VrHandPresenter.Instance.SetHandsVisible(true);
+
+            PlayerLocomotionLock.ForceUnlock();
+        }
+
+        void SuspendRigMovers(bool suspend)
+        {
+            ResolveRig();
+
+            if (suspend)
+            {
+                if (_character != null)
+                {
+                    _characterWasEnabled = _character.enabled;
+                    _character.enabled = false;
+                }
+
+                if (_groundFollow != null && !_groundFollowSuspended)
+                {
+                    _groundFollowWasEnabled = _groundFollow.enabled;
+                    _groundFollow.enabled = false;
+                    _groundFollowSuspended = true;
+                }
+
+                return;
+            }
 
             if (_character != null)
             {
@@ -157,39 +234,6 @@ namespace Golf.Throwing
                 _groundFollow.enabled = _groundFollowWasEnabled;
             _groundFollowSuspended = false;
             _groundFollow = null;
-
-            PlayerLocomotionLock.ForceUnlock();
-        }
-
-        void LateUpdate()
-        {
-            if (!_following || _ball == null || _camera == null || _originRoot == null)
-                return;
-
-            if (_character != null && _character.enabled)
-                _character.enabled = false;
-
-            if (_ball.IsAtRest)
-            {
-                Finish(placeBehindBall: true);
-                return;
-            }
-
-            FollowBall(smooth: true);
-        }
-
-        void OnBallStopped() => Finish(placeBehindBall: true);
-
-        void FollowBall(bool smooth)
-        {
-            Vector3 ballPos = _ball.transform.position;
-            Vector3 towardFlag = GetTowardFlagDirection(ballPos);
-
-            Vector3 desiredCameraPos = ballPos - towardFlag * FlightBackDistance;
-            desiredCameraPos = ClampAboveGround(desiredCameraPos);
-
-            MoveRigSoCameraReaches(desiredCameraPos, smooth);
-            YawRigToward(towardFlag);
         }
 
         void PlaceBehindBallFacingHole(GolfBall ball)
@@ -212,7 +256,6 @@ namespace Golf.Throwing
             targetOrigin.z = desiredCamera.z - camOffset.z;
             targetOrigin.y = ResolveLandingOriginY(targetOrigin) + LandCameraRaise;
             _originRoot.position = targetOrigin;
-            _followVelocity = Vector3.zero;
         }
 
         void BringClubNearby()
@@ -284,19 +327,6 @@ namespace Golf.Throwing
                 _originRoot.RotateAround(_camera.position, Vector3.up, yaw);
         }
 
-        void MoveRigSoCameraReaches(Vector3 desiredCameraPos, bool smooth)
-        {
-            Vector3 targetCam = desiredCameraPos;
-            if (smooth)
-                targetCam = Vector3.SmoothDamp(_camera.position, desiredCameraPos, ref _followVelocity, FollowSmoothTime);
-
-            Vector3 delta = targetCam - _camera.position;
-            if (delta.sqrMagnitude < 0.0000001f)
-                return;
-
-            _originRoot.position += delta;
-        }
-
         void UpdateTravelFallback()
         {
             Rigidbody body = _ball != null ? _ball.GetComponent<Rigidbody>() : null;
@@ -337,17 +367,6 @@ namespace Golf.Throwing
             return _landFallbackOriginY;
         }
 
-        static Vector3 ClampAboveGround(Vector3 worldPos)
-        {
-            if (!TryGetGroundY(worldPos, out float groundY))
-                return worldPos;
-
-            float minY = groundY + MinHeightAboveGround;
-            if (worldPos.y < minY)
-                worldPos.y = minY;
-            return worldPos;
-        }
-
         static bool TryGetGroundY(Vector3 worldPos, out float groundY)
         {
             Vector3 probe = new Vector3(worldPos.x, worldPos.y + GroundProbeUp, worldPos.z);
@@ -359,6 +378,15 @@ namespace Golf.Throwing
 
             groundY = 0f;
             return false;
+        }
+
+        void DisposePip()
+        {
+            if (_pip == null)
+                return;
+
+            _pip.Dispose();
+            _pip = null;
         }
 
         void UnbindBall()

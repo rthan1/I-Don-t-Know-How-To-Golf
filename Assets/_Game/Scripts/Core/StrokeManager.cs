@@ -117,6 +117,10 @@ public class StrokeManager : MonoBehaviour
 
         HoleFinished = true;
         Debug.Log($"[Strokes] {HoleName} finished in {StrokeCount} (par {Par})\n{GetSummaryText()}");
+
+        // Persist this hole for the future scorecard; StrokeManager itself is recreated next hole.
+        RoundScoreTracker.Ensure().RecordFrom(this);
+
         onHoleFinished?.Invoke();
         Changed?.Invoke();
     }

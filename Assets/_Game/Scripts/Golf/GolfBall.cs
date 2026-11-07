@@ -229,6 +229,16 @@ public class GolfBall : MonoBehaviour
         Freeze(true);
     }
 
+    /// <summary>Locks the ball at a world position (e.g. settled in the cup).</summary>
+    public void ForceRestAt(Vector3 worldPosition)
+    {
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.position = worldPosition;
+        transform.position = worldPosition;
+        Freeze(true);
+    }
+
     // Stops the ball completely and locks it in place so it can't creep down slopes.
     private void Freeze(bool fireEvent)
     {
