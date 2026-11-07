@@ -118,6 +118,7 @@ public static class Hole1Builder
         public bool InsideForest;             // a band of thick woods along the inside of the dogleg
         public float ForestDepth;             // how thick that band of woods is
         public float ForestMaxT;              // how far along the hole (0..1) the woods band runs
+        public bool ForestOnLeft;             // woods on the left side of the hole instead (for a dogleg left)
     }
 
     /// Hole 1: par 3-ish gentle dogleg right with a pond on the left.
@@ -320,7 +321,12 @@ public static class Hole1Builder
         PlantHalfSize = new Vector2(11f, 12f),
         PlantPadHeight = 0.6f,
         HasBarrels = true,
-        BarrelStart = 0.52f, BarrelEnd = 0.9f,
+        BarrelStart = 0.55f, BarrelEnd = 0.9f,
+        // Woods on the inside of the dogleg (left) hide the barrel stretch until you come around the corner
+        InsideForest = true,
+        ForestOnLeft = true,
+        ForestDepth = 10f,
+        ForestMaxT = 0.7f,
     };
 
     // Shortcuts to the current layout's values (so the rest of the code reads naturally)
@@ -486,6 +492,7 @@ public static class Hole1Builder
     static float shortcutStartElevation;
     static float riverLevel;
     static float pathLength;       // length of the hole's center line, in layout units
+    static List<(Vector2 position, float groundY, float scale)> plantedTrees = new List<(Vector2, float, float)>();
     static List<Vector2> pathPoints;
     static List<float> pathT;      // 0..1 along the path for each point
     static Vector2 cup;
@@ -568,11 +575,11 @@ public static class Hole1Builder
             if (L.HasMeteor) BuildMeteor(root.transform, propMat);
             if (L.HasRiver) BuildRiver(root.transform, propMat);
             if (L.HasPowerPlant) BuildPowerPlant(root.transform, propMat);
-            if (L.HasBarrels) BuildBarrels(root.transform, propMat);
             if (L.SeparateGreen) BuildSwappableGreens(root.transform, propMat);
             else BuildCupAndFlag(root.transform, propMat);
             BuildTeeMarkers(root.transform, propMat);
             BuildTrees(root.transform, propMat);
+            if (L.HasBarrels) BuildBarrels(root.transform, propMat); // after the trees: it checks what they hide
             if (S.Retro)
             {
                 BuildBushes(root.transform, propMat);
@@ -688,7 +695,8 @@ public static class Hole1Builder
         if (t < 0.12f || t > L.ForestMaxT || d < inner || d > inner + L.ForestDepth) return false;
         Vector2 c = PathPoint(t);
         Vector2 tangent = PathPoint(Mathf.Min(1f, t + 0.01f)) - PathPoint(Mathf.Max(0f, t - 0.01f));
-        return tangent.x * (q.y - c.y) - tangent.y * (q.x - c.x) < 0f; // negative = right-hand side
+        float sideSign = tangent.x * (q.y - c.y) - tangent.y * (q.x - c.x); // negative = right-hand side
+        return L.ForestOnLeft ? sideSign > 0f : sideSign < 0f;
     }
 
     static void BuildPath()
@@ -1701,8 +1709,9 @@ public static class Hole1Builder
         return mb.ToMesh(S.MeshPrefix + "CoolingTower");
     }
 
-    /// Two rows of radioactive barrels down both sides of the last stretch of fairway.
-    /// A few in the outer rows have tipped over and are leaking glowing goo.
+    /// Radioactive barrels dumped sporadically all over the last stretch of fairway: singles and little clusters,
+    /// some tipped over and leaking glowing goo. Only barrels that can't be seen from the tee are kept, so they're
+    /// a surprise when you come around the corner for your second shot.
     static void BuildBarrels(Transform parent, Material mat)
     {
         EnsureFireAssets();
@@ -1723,29 +1732,46 @@ public static class Hole1Builder
         puddleBuilder.Blob(Vector3.zero, 1f, 3, 10, Glow, 170, 0.25f);
         Mesh puddleMesh = puddleBuilder.ToMesh(S.MeshPrefix + "GooPuddle");
 
-        const float barrelRadius = 0.45f, barrelHeight = 1.3f, spacing = 1.25f;
-        float tStep = spacing / S.Scale / pathLength;
-        foreach (int side in new[] { -1, 1 })
-            for (int row = 0; row < 2; row++)
-                for (float t = L.BarrelStart; t <= L.BarrelEnd; t += tStep)
-                {
-                    Vector2 c = PathPoint(t);
-                    Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.005f)) - PathPoint(Mathf.Max(0f, t - 0.005f))).normalized;
-                    var normal = new Vector2(-forward.y, forward.x);
-                    float offset = (HalfWidth(t) + 0.35f) * S.Scale + row * 1.15f + ((float)rng.NextDouble() - 0.5f) * 0.2f;
-                    Vector2 w = ToWorld(c) + normal * (side * offset) + forward * (((float)rng.NextDouble() - 0.5f) * 0.3f);
+        const float barrelRadius = 0.45f, barrelHeight = 1.3f;
+        const int clusterCount = 26;
+        Vector2 tee = ToWorld(TeeCenter);
+        var eye = new Vector3(tee.x, teeHeight + 1.7f, tee.y - 1.0f); // where the player's head is on the tee
+        var placedBarrels = new List<Vector2>();
 
-                    // Keep them out of bunkers and off the green
-                    Vector2 design = w / S.Scale;
-                    if (Ellipse(design, GreenCenter, GreenRadius) < 1.25f) continue;
-                    bool inBunker = false;
-                    foreach (var b in Bunkers)
-                        if (Ellipse(design, b.center, b.radius) < 1.15f) { inBunker = true; break; }
-                    if (inBunker) continue;
+        int clusters = 0;
+        for (int attempt = 0; attempt < 1500 && clusters < clusterCount; attempt++)
+        {
+            // A random spot anywhere across the fairway in the last stretch
+            float t = Mathf.Lerp(L.BarrelStart, L.BarrelEnd, (float)rng.NextDouble());
+            Vector2 c = PathPoint(t);
+            Vector2 forward = (PathPoint(Mathf.Min(1f, t + 0.005f)) - PathPoint(Mathf.Max(0f, t - 0.005f))).normalized;
+            var normal = new Vector2(-forward.y, forward.x);
+            Vector2 clusterCenter = ToWorld(c + normal * (((float)rng.NextDouble() * 2f - 1f) * HalfWidth(t) * 0.9f));
+            if (!HiddenFromTee(clusterCenter)) continue;
 
-                    float ground = GroundHeight(w);
-                    bool tipped = row == 1 && rng.NextDouble() < 0.12;
-                    var barrel = new GameObject(tipped ? "TippedBarrel" : "Barrel");
+            // Mostly singles and pairs, the odd bigger pile
+            double roll = rng.NextDouble();
+            int count = roll < 0.45 ? 1 : roll < 0.75 ? 2 : roll < 0.92 ? 3 : 4;
+            bool placedAny = false;
+            for (int n = 0; n < count; n++)
+            {
+                Vector2 w = clusterCenter + (n == 0 ? Vector2.zero
+                    : new Vector2((float)rng.NextDouble() * 2f - 1f, (float)rng.NextDouble() * 2f - 1f) * 1.6f);
+
+                // Keep them off the green, out of bunkers, apart from each other, and out of sight from the tee
+                Vector2 design = w / S.Scale;
+                if (Ellipse(design, GreenCenter, GreenRadius) < 1.25f) continue;
+                bool inBunker = false;
+                foreach (var b in Bunkers)
+                    if (Ellipse(design, b.center, b.radius) < 1.15f) { inBunker = true; break; }
+                if (inBunker || IsCrowded(placedBarrels, w, 1.05f) || !HiddenFromTee(w)) continue;
+                placedBarrels.Add(w);
+                placedAny = true;
+
+                float ground = GroundHeight(w);
+                bool tipped = rng.NextDouble() < 0.18;
+                forward = Quaternion.Euler(0f, 0f, (float)rng.NextDouble() * 360f) * Vector2.right; // random way it fell
+                var barrel = new GameObject(tipped ? "TippedBarrel" : "Barrel");
                     barrel.transform.SetParent(barrelParent, false);
                     var along = new Vector3(forward.x, 0f, forward.y);
                     if (tipped)
@@ -1774,7 +1800,31 @@ public static class Hole1Builder
                     collider.radius = 1f;
                     collider.height = 1f;
                     GameObjectUtility.SetStaticEditorFlags(barrel, StaticEditorFlags.BatchingStatic);
+            }
+            if (placedAny) clusters++;
+        }
+
+        // Can the player see a barrel at this spot from the tee? Checks the hills and the tree canopies in between.
+        bool HiddenFromTee(Vector2 spot)
+        {
+            var target = new Vector3(spot.x, GroundHeight(spot) + barrelHeight, spot.y); // top of the barrel
+            float distance = Vector3.Distance(eye, target);
+            int steps = Mathf.CeilToInt(distance / 0.75f);
+            for (int i = 1; i < steps; i++)
+            {
+                Vector3 s = Vector3.Lerp(eye, target, i / (float)steps);
+                var s2 = new Vector2(s.x, s.z);
+                if (GroundHeight(s2) > s.y) return true; // a hill is in the way
+                foreach (var tree in plantedTrees)
+                {
+                    float canopy = 1.2f * tree.scale;
+                    if ((tree.position - s2).sqrMagnitude < canopy * canopy &&
+                        s.y > tree.groundY + 0.7f * tree.scale && s.y < tree.groundY + 3.4f * tree.scale)
+                        return true; // a tree is in the way
                 }
+            }
+            return false;
+        }
     }
 
     /// cupBottomY / meshSuffix are only used by Hole 3's two greens; other holes use the defaults.
@@ -2204,6 +2254,7 @@ public static class Hole1Builder
         var rng = new System.Random(RandomSeed);
         var placed = new List<Vector2>();
         var planted = new List<(GameObject tree, Vector2 position, bool pine)>();
+        plantedTrees = new List<(Vector2, float, float)>();
 
         // Thick woods: fill the inside of the dogleg on a tight jittered grid (the shortcut lane stays clear),
         // and wall off the outside of the meteor crater so going around it is a real struggle.
@@ -2250,6 +2301,7 @@ public static class Hole1Builder
             tree.transform.localScale = Vector3.one * Mathf.Lerp(0.8f, 1.5f, (float)rng.NextDouble()) * S.TreeScale;
             int meshIndex = rng.Next(meshes.Count);
             planted.Add((tree, p, meshIndex % 2 == 0)); // even = pine, odd = round
+            plantedTrees.Add((p, tree.transform.localPosition.y, tree.transform.localScale.x));
             tree.AddComponent<MeshFilter>().sharedMesh = meshes[meshIndex];
             tree.AddComponent<MeshRenderer>().sharedMaterial = mat;
             var trunk = tree.AddComponent<CapsuleCollider>();
