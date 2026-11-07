@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.XR;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Readers;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation;
@@ -10,7 +11,8 @@ namespace Golf.Throwing
 {
     /// <summary>
     /// Cheat-throw flow: Aim → Power → Accuracy → Launch.
-    /// Confirm with F. Space (simulator quick-action) is suppressed while throwing.
+    /// Confirm with Quest A (right primary) or keyboard F.
+    /// Space (simulator quick-action) is suppressed while throwing.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class ThrowSequenceController : MonoBehaviour
@@ -181,7 +183,7 @@ namespace Golf.Throwing
         void EnterAiming()
         {
             Phase = ThrowPhase.Aiming;
-            meterUI.Show("AIM", "Press F to lock direction", ThrowMeterUI.MeterDisplayMode.Hidden);
+            meterUI.Show("AIM", "Press A to lock direction", ThrowMeterUI.MeterDisplayMode.Hidden);
             UpdateAimLine(forceShow: true);
         }
 
@@ -196,7 +198,7 @@ namespace Golf.Throwing
         {
             Phase = ThrowPhase.Power;
             _meter.Start(powerMeterSpeed, 0f);
-            meterUI.Show("POWER", "Press F once in the green", ThrowMeterUI.MeterDisplayMode.PowerFill);
+            meterUI.Show("POWER", "Press A once in the green", ThrowMeterUI.MeterDisplayMode.PowerFill);
             meterUI.SetValue(_meter.Value);
             UpdateAimLine(forceShow: true);
         }
@@ -208,7 +210,7 @@ namespace Golf.Throwing
 
             Phase = ThrowPhase.Accuracy;
             _meter.Start(accuracyMeterSpeed, 0f);
-            meterUI.Show("ACCURACY", "Press F once in the green", ThrowMeterUI.MeterDisplayMode.AccuracyNeedle);
+            meterUI.Show("ACCURACY", "Press A once in the green", ThrowMeterUI.MeterDisplayMode.AccuracyNeedle);
             meterUI.SetValue(_meter.Value);
         }
 
@@ -349,6 +351,11 @@ namespace Golf.Throwing
 
         static bool WasConfirmPressed()
         {
+            // Quest A = right controller primaryButton. Keep F for desktop/simulator.
+            var right = XRController.rightHand;
+            if (right != null && right.primaryButton.wasPressedThisFrame)
+                return true;
+
             var keyboard = Keyboard.current;
             return keyboard != null && keyboard.fKey.wasPressedThisFrame;
         }
