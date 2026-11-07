@@ -15,7 +15,8 @@ MonoBehaviour:
   clubName: Driver
   visualPrefab: {fileID: 0}
   shaftLength: 1.1
-  headRadius: 0.05
+  faceWidth: 0.1
+  faceThickness: 0.015
   loftDegrees: 12
   liftStrength: 0.5
   speedCurve:
@@ -32,9 +33,9 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 8
-      value: 13.2
-      inSlope: 1.6242
-      outSlope: 1.6242
+      value: 16.5
+      inSlope: 1.2833
+      outSlope: 1.2833
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -54,5 +55,7 @@ MonoBehaviour:
   minSwingSpeed: 2
   maxBallSpeed: 19.8
   faceAimInfluence: 0
+  edgePower: 0.65
+  edgeCurveDegrees: 8
   hapticAmplitude: 0.9
   hapticDuration: 0.12

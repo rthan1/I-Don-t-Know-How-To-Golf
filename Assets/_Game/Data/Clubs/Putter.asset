@@ -15,7 +15,8 @@ MonoBehaviour:
   clubName: Putter
   visualPrefab: {fileID: 0}
   shaftLength: 0.85
-  headRadius: 0.08
+  faceWidth: 0.09
+  faceThickness: 0.015
   loftDegrees: 2
   liftStrength: 0
   speedCurve:
@@ -32,9 +33,9 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 3
-      value: 3.3
-      inSlope: 1.6494
-      outSlope: 1.6494
+      value: 4.1
+      inSlope: 1.1267
+      outSlope: 1.1267
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -54,5 +55,7 @@ MonoBehaviour:
   minSwingSpeed: 0.5
   maxBallSpeed: 6.6
   faceAimInfluence: 0
+  edgePower: 0.85
+  edgeCurveDegrees: 3
   hapticAmplitude: 0.3
   hapticDuration: 0.05

@@ -5,24 +5,23 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Haptics;
 
-// Goes on the club head (a child of the club). Measures how fast the head is moving,
-// detects when it hits the ball, and launches the ball using the current ClubData.
+// Goes on the club head (a child of the club). Every physics step it slides the club face along the path
+// the head just traveled, in small slices, and checks for the ball. On a good contact it launches the ball
+// using the current ClubData, scaled by how close to the middle of the face the ball was hit.
 // The head never pushes the ball physically. It only detects the hit and calls GolfBall.Launch().
-[RequireComponent(typeof(SphereCollider))]
+// Face layout in this object's local space: heel to toe runs along X, and the face points along Local Face Direction.
 public class ClubHead : MonoBehaviour
 {
-    public enum DetectionMode { TriggerOnly, SweepOnly, Both }
-
     [Header("Club")]
     [Tooltip("Numbers for the club currently in hand. ClubSwitcher changes this.")]
     [SerializeField] private ClubData clubData;
 
     [Header("Detection")]
-    [Tooltip("Trigger = the head overlaps the ball. Sweep = checks the path the head traveled, which catches fast swings the trigger misses. Both = whichever catches it first.")]
-    public DetectionMode detectionMode = DetectionMode.Both;
-
-    [Tooltip("Layers the sweep looks for the ball on.")]
+    [Tooltip("Layers to look for the ball on.")]
     public LayerMask ballLayers;
+
+    [Tooltip("Longest gap (m) between checks along the swing path. Smaller = more precise.")]
+    [Min(0.005f)] public float maxSliceDistance = 0.03f;
 
     [Tooltip("Seconds after a hit before the club can hit again.")]
     [Min(0f)] public float hitCooldown = 0.5f;
@@ -32,9 +31,6 @@ public class ClubHead : MonoBehaviour
 
     [Tooltip("Which way the club face points, in the club head's local space. Only matters if the club's Face Aim Influence is above 0.")]
     public Vector3 localFaceDirection = Vector3.forward;
-
-    [Tooltip("How many physics steps of movement to average for the swing speed. Smooths out tracking jitter.")]
-    [Range(1, 6)] public int speedSamples = 3;
 
     [Header("Events")]
     [Tooltip("Fires on every successful legit hit. Hook the stroke counter up to this.")]
@@ -49,25 +45,23 @@ public class ClubHead : MonoBehaviour
     public float CurrentSpeed { get; private set; }
     public float LastSwingSpeed { get; private set; }
     public float LastBallSpeed { get; private set; }
-    public string LastDetector { get; private set; } = "-";
+    public float LastSweetSpot { get; private set; } // 1 = dead center, 0 = very edge
     public bool IsHeld => holder != null;
 
-    private SphereCollider headTrigger;
     private Rigidbody clubBody;
     private XRGrabInteractable grab;
     private IXRSelectInteractor holder;
 
-    // Where the head sits relative to the club's Rigidbody. Worked out once in CacheHeadOffset().
+    // Where the head sits relative to the club's Rigidbody. Worked out in CacheHeadOffset().
     private Vector3 headOffsetLocal;
     private Quaternion headRotationLocal = Quaternion.identity;
 
     private Vector3 lastHeadPosition;
-    private bool hasLastPosition;
-    private readonly Vector3[] velocitySamples = new Vector3[6];
-    private int sampleIndex;
-    private int sampleCount;
-    private Vector3 smoothedVelocity;
+    private Quaternion lastHeadRotation;
+    private bool hasLastPose;
+    private bool wasTouchingBall;
     private float lastHitTime = -999f;
+    private readonly Collider[] overlapResults = new Collider[4];
 
     // Runs when the component is first added in the Editor: pre-fills the Ball layer.
     private void Reset()
@@ -77,8 +71,6 @@ public class ClubHead : MonoBehaviour
 
     private void Awake()
     {
-        headTrigger = GetComponent<SphereCollider>();
-        headTrigger.isTrigger = true;
         clubBody = GetComponentInParent<Rigidbody>();
         grab = GetComponentInParent<XRGrabInteractable>();
 
@@ -87,18 +79,12 @@ public class ClubHead : MonoBehaviour
             ballLayers = LayerMask.GetMask("Ball");
         }
 
-        if (gameObject.layer != LayerMask.NameToLayer("ClubHead"))
-        {
-            Debug.LogWarning($"{name}: ClubHead should be on the 'ClubHead' layer.", this);
-        }
-
         if (grab == null && requireHeld)
         {
             Debug.LogWarning($"{name}: no XRGrabInteractable found above the club head, so 'Require Held' will block every hit.", this);
         }
 
         CacheHeadOffset();
-        ApplyClubData();
     }
 
     private void OnEnable()
@@ -125,7 +111,6 @@ public class ClubHead : MonoBehaviour
     public void SetClub(ClubData newClub)
     {
         clubData = newClub;
-        ApplyClubData();
     }
 
     // Re-measures where the head sits on the club. Call this if the head gets moved
@@ -135,104 +120,144 @@ public class ClubHead : MonoBehaviour
         if (clubBody != null)
         {
             Transform body = clubBody.transform;
-            headOffsetLocal = Quaternion.Inverse(body.rotation) * (HeadCenterWorld() - body.position);
+            headOffsetLocal = Quaternion.Inverse(body.rotation) * (transform.position - body.position);
             headRotationLocal = Quaternion.Inverse(body.rotation) * transform.rotation;
         }
 
-        ResetSpeedTracking();
+        ResetTracking();
     }
 
     private void FixedUpdate()
     {
         Vector3 headPosition = GetHeadPosition();
+        Quaternion headRotation = GetHeadRotation();
 
-        if (!hasLastPosition)
+        if (!hasLastPose)
         {
             lastHeadPosition = headPosition;
-            hasLastPosition = true;
+            lastHeadRotation = headRotation;
+            hasLastPose = true;
             return;
         }
 
+        // Speed for this one physics step, not an average, so it matches the moment of contact.
         Vector3 velocity = (headPosition - lastHeadPosition) / Time.fixedDeltaTime;
-        AddSpeedSample(velocity);
+        CurrentSpeed = velocity.magnitude;
 
-        if (detectionMode != DetectionMode.TriggerOnly)
+        if (clubData != null && (!requireHeld || IsHeld))
         {
-            SweepForBall(lastHeadPosition, headPosition);
+            CheckSwingPath(lastHeadPosition, lastHeadRotation, headPosition, headRotation, velocity);
+        }
+        else
+        {
+            wasTouchingBall = false;
         }
 
         lastHeadPosition = headPosition;
+        lastHeadRotation = headRotation;
     }
 
-    private void OnTriggerEnter(Collider other)
+    // Slides the face from its last pose to its current pose in small slices (turning as it goes),
+    // checking for the ball at each one. Fast swings can't skip past the ball this way.
+    private void CheckSwingPath(Vector3 fromPosition, Quaternion fromRotation, Vector3 toPosition, Quaternion toRotation, Vector3 velocity)
     {
-        if (detectionMode == DetectionMode.SweepOnly)
-        {
-            return;
-        }
+        float distance = Vector3.Distance(fromPosition, toPosition);
+        int slices = Mathf.Clamp(Mathf.CeilToInt(distance / maxSliceDistance), 1, 16);
 
-        TryHit(other, "Trigger");
+        for (int i = 1; i <= slices; i++)
+        {
+            float t = (float)i / slices;
+            Vector3 position = Vector3.Lerp(fromPosition, toPosition, t);
+            Quaternion rotation = Quaternion.Slerp(fromRotation, toRotation, t);
+
+            Collider ballCollider = FindBallAt(position, rotation);
+            bool touching = ballCollider != null;
+
+            // Only the first slice where the face meets the ball counts, not a club resting against it.
+            if (touching && !wasTouchingBall)
+            {
+                TryHit(ballCollider, position, rotation, velocity);
+            }
+
+            wasTouchingBall = touching;
+        }
     }
 
-    // Casts a sphere the size of the head along the path it just traveled.
-    // Catches the ball even if the head skipped past it between physics steps.
-    private void SweepForBall(Vector3 from, Vector3 to)
+    // Checks whether the face, placed at this pose, overlaps the ball.
+    private Collider FindBallAt(Vector3 position, Quaternion rotation)
     {
-        Vector3 path = to - from;
-        float distance = path.magnitude;
-        if (distance < 0.0001f)
-        {
-            return;
-        }
+        GetFaceEnds(position, rotation, out Vector3 heelEnd, out Vector3 toeEnd);
+        int count = Physics.OverlapCapsuleNonAlloc(heelEnd, toeEnd, clubData.faceThickness,
+            overlapResults, ballLayers, QueryTriggerInteraction.Ignore);
 
-        if (Physics.SphereCast(from, WorldHeadRadius(), path / distance, out RaycastHit hit,
-                distance, ballLayers, QueryTriggerInteraction.Ignore))
-        {
-            TryHit(hit.collider, "Sweep");
-        }
+        return count > 0 ? overlapResults[0] : null;
     }
 
-    // Checks that this contact should count, then launches the ball.
-    private void TryHit(Collider other, string detector)
+    // The face is a capsule running heel to toe along the head's local X axis.
+    private void GetFaceEnds(Vector3 position, Quaternion rotation, out Vector3 heelEnd, out Vector3 toeEnd)
+    {
+        Vector3 faceAxis = rotation * Vector3.right;
+        float halfLength = Mathf.Max(0f, clubData.faceWidth * 0.5f - clubData.faceThickness);
+        heelEnd = position - faceAxis * halfLength;
+        toeEnd = position + faceAxis * halfLength;
+    }
+
+    // Checks that this contact should count, grades it, then launches the ball.
+    private void TryHit(Collider other, Vector3 headPosition, Quaternion headRotation, Vector3 velocity)
     {
         GolfBall ball = other.attachedRigidbody != null
             ? other.attachedRigidbody.GetComponent<GolfBall>()
             : other.GetComponent<GolfBall>();
 
-        if (ball == null || clubData == null) return;
-        if (requireHeld && !IsHeld) return;
+        if (ball == null) return;
         if (Time.time < lastHitTime + hitCooldown) return;
         if (!ball.IsAtRest) return;
 
-        float swingSpeed = CurrentSpeed;
-        float ballSpeed = clubData.GetBallSpeed(swingSpeed);
-        if (ballSpeed <= 0f) return; // too slow to count
+        // The head has to be moving toward the ball, not grazing it on the way back.
+        Vector3 ballCenter = other.bounds.center;
+        if (Vector3.Dot(velocity, ballCenter - headPosition) <= 0f) return;
 
-        Vector3 direction = GetLaunchDirection(smoothedVelocity);
+        float swingSpeed = velocity.magnitude;
+        float fullSpeed = clubData.GetBallSpeed(swingSpeed);
+        if (fullSpeed <= 0f) return; // too slow to count
+
+        // Where along the face it hit: 0 = dead center, 1 = the very toe or heel.
+        Vector3 faceAxis = headRotation * Vector3.right;
+        float offsetAlongFace = Vector3.Dot(ballCenter - headPosition, faceAxis);
+        float edge = Mathf.Clamp01(Mathf.Abs(offsetAlongFace) / (clubData.faceWidth * 0.5f));
+
+        // Power drops toward the edges. Squared, so the middle of the face is forgiving.
+        float ballSpeed = fullSpeed * Mathf.Lerp(1f, clubData.edgePower, edge * edge);
+
+        // Off-center hits get pushed to one side (toe one way, heel the other).
+        Vector3 direction = GetLaunchDirection(velocity, headRotation);
+        float sidePush = clubData.edgeCurveDegrees * edge * Mathf.Sign(offsetAlongFace);
+        direction = Quaternion.AngleAxis(sidePush, Vector3.up) * direction;
+
         if (!ball.Launch(direction * ballSpeed, clubData.liftStrength)) return;
 
         lastHitTime = Time.time;
         LastSwingSpeed = swingSpeed;
         LastBallSpeed = ballSpeed;
-        LastDetector = detector;
+        LastSweetSpot = 1f - edge;
 
         PlayHaptic();
         onLegitSwing?.Invoke();
 
         if (logHits)
         {
-            Debug.Log($"[{clubData.clubName}] {detector} hit: swing {swingSpeed:F1} m/s -> ball {ballSpeed:F1} m/s", this);
+            Debug.Log($"[{clubData.clubName}] hit: swing {swingSpeed:F1} m/s, sweet spot {LastSweetSpot * 100f:F0}% -> ball {ballSpeed:F1} m/s", this);
         }
     }
 
     // Works out which way the ball should fly.
-    private Vector3 GetLaunchDirection(Vector3 clubVelocity)
+    private Vector3 GetLaunchDirection(Vector3 clubVelocity, Quaternion headRotation)
     {
         // 1. Swing path, flattened so up/down motion in the swing doesn't change the aim. Loft handles height.
         Vector3 pathDirection = Vector3.ProjectOnPlane(clubVelocity, Vector3.up);
 
         // 2. Which way the face points, also flattened.
-        Vector3 faceDirection = Vector3.ProjectOnPlane(GetHeadRotation() * localFaceDirection, Vector3.up);
+        Vector3 faceDirection = Vector3.ProjectOnPlane(headRotation * localFaceDirection, Vector3.up);
 
         // Straight up/down swing with no sideways motion: fall back to the face, then to world forward.
         if (pathDirection.sqrMagnitude < 0.0001f) pathDirection = faceDirection;
@@ -275,7 +300,7 @@ public class ClubHead : MonoBehaviour
         holder = args.interactorObject;
 
         // The club snaps to the hand on grab. Without this reset, that snap would look like a huge swing.
-        ResetSpeedTracking();
+        ResetTracking();
     }
 
     private void OnReleased(SelectExitEventArgs args)
@@ -286,45 +311,17 @@ public class ClubHead : MonoBehaviour
         }
     }
 
-    // Keeps the head trigger's size in meters, matching the club data.
-    private void ApplyClubData()
+    private void ResetTracking()
     {
-        if (clubData == null || headTrigger == null) return;
-
-        headTrigger.radius = clubData.headRadius / MaxScale(transform.lossyScale);
-    }
-
-    // Records one physics step of head movement and updates the averaged swing speed.
-    private void AddSpeedSample(Vector3 velocity)
-    {
-        velocitySamples[sampleIndex] = velocity;
-        sampleIndex = (sampleIndex + 1) % velocitySamples.Length;
-        sampleCount = Mathf.Min(sampleCount + 1, velocitySamples.Length);
-
-        int count = Mathf.Min(sampleCount, speedSamples);
-        Vector3 sum = Vector3.zero;
-        for (int i = 0; i < count; i++)
-        {
-            int index = (sampleIndex - 1 - i + velocitySamples.Length) % velocitySamples.Length;
-            sum += velocitySamples[index];
-        }
-
-        smoothedVelocity = sum / count;
-        CurrentSpeed = smoothedVelocity.magnitude;
-    }
-
-    private void ResetSpeedTracking()
-    {
-        hasLastPosition = false;
-        sampleCount = 0;
-        smoothedVelocity = Vector3.zero;
+        hasLastPose = false;
+        wasTouchingBall = false;
         CurrentSpeed = 0f;
     }
 
     // Head position and rotation, read from the club's physics body so they match what the physics engine sees.
     private Vector3 GetHeadPosition()
     {
-        return clubBody != null ? clubBody.position + clubBody.rotation * headOffsetLocal : HeadCenterWorld();
+        return clubBody != null ? clubBody.position + clubBody.rotation * headOffsetLocal : transform.position;
     }
 
     private Quaternion GetHeadRotation()
@@ -332,29 +329,22 @@ public class ClubHead : MonoBehaviour
         return clubBody != null ? clubBody.rotation * headRotationLocal : transform.rotation;
     }
 
-    private Vector3 HeadCenterWorld()
-    {
-        return transform.TransformPoint(headTrigger.center);
-    }
-
-    private float WorldHeadRadius()
-    {
-        return headTrigger.radius * MaxScale(transform.lossyScale);
-    }
-
-    private static float MaxScale(Vector3 scale)
-    {
-        return Mathf.Max(Mathf.Abs(scale.x), Mathf.Max(Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
-    }
-
-    // Draws the head's hit sphere (yellow) and face direction (cyan) in the Scene view when selected.
+    // Draws the face hit shape (yellow) and face direction (cyan) in the Scene view when selected.
     private void OnDrawGizmosSelected()
     {
-        SphereCollider sphere = GetComponent<SphereCollider>();
-        if (sphere == null) return;
+        if (clubData == null) return;
+
+        GetFaceEnds(transform.position, transform.rotation, out Vector3 heelEnd, out Vector3 toeEnd);
+        float r = clubData.faceThickness;
 
         Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.TransformPoint(sphere.center), sphere.radius * MaxScale(transform.lossyScale));
+        Gizmos.DrawWireSphere(heelEnd, r);
+        Gizmos.DrawWireSphere(toeEnd, r);
+        Gizmos.DrawLine(heelEnd + transform.up * r, toeEnd + transform.up * r);
+        Gizmos.DrawLine(heelEnd - transform.up * r, toeEnd - transform.up * r);
+        Gizmos.DrawLine(heelEnd + transform.forward * r, toeEnd + transform.forward * r);
+        Gizmos.DrawLine(heelEnd - transform.forward * r, toeEnd - transform.forward * r);
+
         Gizmos.color = Color.cyan;
         Gizmos.DrawRay(transform.position, transform.rotation * localFaceDirection * 0.2f);
     }

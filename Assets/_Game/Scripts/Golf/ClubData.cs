@@ -17,8 +17,11 @@ public class ClubData : ScriptableObject
     [Tooltip("Distance from the grip to the club head, in meters.")]
     [Min(0.1f)] public float shaftLength = 1.0f;
 
-    [Tooltip("Radius of the club head's hit trigger, in meters. Bigger = more forgiving.")]
-    [Min(0.01f)] public float headRadius = 0.06f;
+    [Tooltip("Length of the club face from heel to toe, in meters. Wider = more forgiving side to side.")]
+    [Min(0.02f)] public float faceWidth = 0.08f;
+
+    [Tooltip("Half the thickness of the club face, in meters. Bigger = more forgiving up and down.")]
+    [Min(0.005f)] public float faceThickness = 0.015f;
 
     [Header("Launch")]
     [Tooltip("Launch angle above horizontal, in degrees. Low for driver, high for iron, near 0 for putter.")]
@@ -40,6 +43,13 @@ public class ClubData : ScriptableObject
 
     [Tooltip("How much the club face direction bends the shot. 0 = follow the swing path only, 1 = follow the face only.")]
     [Range(0f, 1f)] public float faceAimInfluence = 0f;
+
+    [Header("Contact")]
+    [Tooltip("Power you keep when the ball is hit at the very toe or heel (1 = no penalty, 0.5 = half power).")]
+    [Range(0f, 1f)] public float edgePower = 0.7f;
+
+    [Tooltip("How far (degrees) a hit at the very toe or heel gets pushed to the side.")]
+    [Range(0f, 30f)] public float edgeCurveDegrees = 6f;
 
     [Header("Feel")]
     [Tooltip("Controller vibration strength on hit, 0 to 1.")]

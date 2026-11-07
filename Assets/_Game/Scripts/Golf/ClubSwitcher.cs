@@ -148,10 +148,10 @@ public class ClubSwitcher : MonoBehaviour
 
         if (grayBoxHead != null)
         {
-            // Long side runs heel to toe (X). The face points along +Z.
-            float r = club.headRadius;
+            // Same size as the hit shape: face width heel to toe (X), face thickness up/down and front/back.
+            float thickness = club.faceThickness * 2f;
             grayBoxHead.localPosition = headPosition;
-            grayBoxHead.localScale = new Vector3(r * 2f, r * 0.8f, r * 0.8f);
+            grayBoxHead.localScale = new Vector3(club.faceWidth, thickness, thickness);
         }
     }
 
