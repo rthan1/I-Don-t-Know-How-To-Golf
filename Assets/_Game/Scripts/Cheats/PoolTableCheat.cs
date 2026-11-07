@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 /// The pool table cheat: press a button and the hole's green turns into a perfectly flat pool table.
 /// It only works while you're standing on the green.
 ///
-/// Default buttons: A on the right Quest controller, or P on the keyboard (for testing in the editor).
+/// Default buttons: X on the left Quest controller, or P on the keyboard (for testing in the editor).
 /// Change them in the Inspector under "Cheat Button".
 ///
 /// Put this on any active object in a scene that has a GreenSwap (Hole 3's builder adds it to the "Green" object).
@@ -16,7 +16,7 @@ public class PoolTableCheat : MonoBehaviour
     [Tooltip("The green to swap. Found automatically if left empty.")]
     public GreenSwap green;
 
-    [Tooltip("Button(s) that trigger the cheat. If none are set, it uses A on the right controller and P on the keyboard.")]
+    [Tooltip("Button(s) that trigger the cheat. If none are set, it uses X on the left controller and P on the keyboard.")]
     public InputAction cheatButton = new InputAction("PoolTableCheat", InputActionType.Button);
 
     [Tooltip("Pressing the button again switches back to the normal green (handy while testing).")]
@@ -43,7 +43,7 @@ public class PoolTableCheat : MonoBehaviour
     {
         if (cheatButton.bindings.Count == 0)
         {
-            cheatButton.AddBinding("<XRController>{RightHand}/primaryButton"); // A on the right Quest controller
+            cheatButton.AddBinding("<XRController>{LeftHand}/primaryButton"); // X on the left Quest controller
             cheatButton.AddBinding("<Keyboard>/p");                            // for testing in the editor
         }
         if (green == null) green = FindFirstObjectByType<GreenSwap>();

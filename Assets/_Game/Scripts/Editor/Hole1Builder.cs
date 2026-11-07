@@ -2138,7 +2138,7 @@ public static class Hole1Builder
         swap.poolTable = pool;
         pool.SetActive(false);
 
-        // The cheat button (A on the right controller / P on the keyboard) that raises the pool table
+        // The cheat button (X on the left controller / P on the keyboard) that raises the pool table
         AddPoolTableCheat(greenRoot, swap);
     }
 
@@ -2170,7 +2170,7 @@ public static class Hole1Builder
         swap.poolTable = pool;
         pool.SetActive(false);
 
-        // The cheat button (A on the right controller / P on the keyboard) that turns it into the pool table
+        // The cheat button (X on the left controller / P on the keyboard) that turns it into the pool table
         AddPoolTableCheat(greenRoot, swap);
     }
 
